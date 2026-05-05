@@ -1,15 +1,16 @@
 name: Integration (real Nextcloud)
 
-# Stands up an actual Nextcloud server in a sidecar container, copies this
-# app into it, and exercises the lifecycle: composer install (no-dev) →
-# app:enable → migrations:migrate → app:list → migrations:migrate
-# (idempotency check) → app:disable → app:enable (re-enable check) →
-# files:scan (sanity). Catches issues that PHPStan / php-cs-fixer / phpunit
-# can't, since those run against stub interfaces.
+# Stands up an actual Nextcloud server in a Docker container, copies this
+# app into it after install (NOT via volume mount — Docker's read-only
+# bind mounts on /var/www/html/custom_apps block NC's recursive entrypoint
+# chown and the install never starts), then exercises the lifecycle:
+# app:enable (which runs migrations + repair-steps automatically) →
+# disable / re-enable cycle (idempotency check) → verify schema and the
+# post-migration SystemTags landed in the DB.
 #
-# Matrix: latest stable NC images (stable27/28/29/30). If any of those
-# fail, the App Store listing's <nextcloud min-version="27" max-version="30">
-# range is wrong.
+# Catches issues that PHPStan / php-cs-fixer / phpunit can't, since those
+# run against OCP stub interfaces. The matrix targets the four NC majors
+# declared in appinfo/info.xml's <nextcloud min-version="27" max-version="30">.
 
 on:
   push:
@@ -29,9 +30,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Image tags from hub.docker.com/_/nextcloud (bare numeric series tags
-        # resolve to the latest patch in each NC major). 27 + 28 are still
-        # receiving security patches as of 2026-05-05.
+        # Image tags from hub.docker.com/_/nextcloud (bare numeric series
+        # tags resolve to the latest patch in each NC major).
         nc-version: ['27', '28', '29', '30']
 
     steps:
@@ -50,22 +50,28 @@ jobs:
         env:
           NC_VERSION: ${{ matrix.nc-version }}
         run: |
-          # SQLite-backed install — built into the image, no sidecar DB
-          # needed. NEXTCLOUD_ADMIN_USER/PASSWORD trigger auto-install on
-          # first boot. NEXTCLOUD_TRUSTED_DOMAINS keeps occ happy.
+          # SQLite-backed install — built into the image, no DB sidecar.
+          # NEXTCLOUD_ADMIN_USER/PASSWORD trigger auto-install on first
+          # boot; NEXTCLOUD_TRUSTED_DOMAINS keeps occ happy. No volume
+          # mount here — it would block the entrypoint's chown.
           docker run -d --name nc \
             -e SQLITE_DATABASE=nextcloud \
             -e NEXTCLOUD_ADMIN_USER=admin \
             -e NEXTCLOUD_ADMIN_PASSWORD=admin \
             -e NEXTCLOUD_TRUSTED_DOMAINS=localhost \
             -p 8080:80 \
-            -v "$PWD:/var/www/html/custom_apps/signdocs_brasil:ro" \
             nextcloud:${NC_VERSION}
 
       - name: Wait for install to finish
         run: |
           # Poll occ status until config indicates installation completed.
+          # Bail fast if the container exits during install.
           for i in $(seq 1 60); do
+            if ! docker ps --format '{{.Names}}' | grep -q '^nc$'; then
+              echo "Container exited during install. Logs:"
+              docker logs nc 2>&1 | tail -50
+              exit 1
+            fi
             if docker exec --user www-data nc php occ status 2>/dev/null \
               | grep -q "installed: true"; then
               echo "NC installed."
@@ -75,10 +81,16 @@ jobs:
           done
           docker exec --user www-data nc php occ status
 
+      - name: Copy app into custom_apps
+        run: |
+          # Copy after install so the entrypoint chown step doesn't trip
+          # on a read-only bind mount.
+          docker exec nc mkdir -p /var/www/html/custom_apps
+          docker cp . nc:/var/www/html/custom_apps/signdocs_brasil
+          docker exec nc chown -R www-data:www-data /var/www/html/custom_apps
+
       - name: Register custom_apps directory
         run: |
-          # Custom apps mounted at custom_apps need to be added to NC's
-          # apps_paths config so occ discovers them.
           docker exec --user www-data nc php occ config:system:set apps_paths 0 path --value="/var/www/html/apps"
           docker exec --user www-data nc php occ config:system:set apps_paths 0 url --value="/apps"
           docker exec --user www-data nc php occ config:system:set apps_paths 0 writable --value=true --type=boolean
@@ -86,41 +98,62 @@ jobs:
           docker exec --user www-data nc php occ config:system:set apps_paths 1 url --value="/custom_apps"
           docker exec --user www-data nc php occ config:system:set apps_paths 1 writable --value=false --type=boolean
 
-      - name: Enable signdocs_brasil
+      - name: Enable signdocs_brasil (runs migrations + repair-steps)
         run: |
           docker exec --user www-data nc php occ app:enable signdocs_brasil
           docker exec --user www-data nc php occ app:list 2>/dev/null \
-            | grep -A1 'Enabled:' | grep -q signdocs_brasil
+            | awk '/^Enabled:/{p=1} p' | grep -q signdocs_brasil
 
-      - name: Run migrations
+      - name: Verify schema landed
         run: |
-          docker exec --user www-data nc php occ migrations:migrate signdocs_brasil
-          docker exec --user www-data nc php occ migrations:status signdocs_brasil
+          # The Version000100 migration runs as part of app:enable. Confirm
+          # the oc_signdocs_sessions table exists in the SQLite DB.
+          set -e
+          docker exec --user www-data nc php -r '
+            $db = new PDO("sqlite:/var/www/html/data/nextcloud.db");
+            $r = $db->query("SELECT name FROM sqlite_master WHERE type=\"table\" AND name=\"oc_signdocs_sessions\"")->fetchColumn();
+            if ($r !== "oc_signdocs_sessions") { fwrite(STDERR, "missing oc_signdocs_sessions\n"); exit(1); }
+            echo "oc_signdocs_sessions: present\n";
+          '
 
-      - name: Migration idempotency (re-run must succeed)
+      - name: Verify SystemTags repair-step ran
         run: |
-          docker exec --user www-data nc php occ migrations:migrate signdocs_brasil
+          # EnsureSystemTags runs as a post-migration repair step, creating
+          # the three status tags. Verify directly in oc_systemtag.
+          set -e
+          docker exec --user www-data nc php -r '
+            $db = new PDO("sqlite:/var/www/html/data/nextcloud.db");
+            $expected = ["signdocs:pendente", "signdocs:assinado", "signdocs:cancelado"];
+            $found = [];
+            foreach ($db->query("SELECT name FROM oc_systemtag ORDER BY name") as $r) {
+              $found[] = $r["name"];
+            }
+            $missing = array_diff($expected, $found);
+            if ($missing) { fwrite(STDERR, "missing tags: " . implode(",", $missing) . "\n"); exit(1); }
+            echo "all three SystemTags present\n";
+          '
 
-      - name: Disable / re-enable cycle
+      - name: Disable / re-enable cycle (idempotency)
         run: |
           docker exec --user www-data nc php occ app:disable signdocs_brasil
           docker exec --user www-data nc php occ app:enable signdocs_brasil
-
-      - name: SystemTags repair-step ran
-        run: |
-          # The post-migration repair step EnsureSystemTags should have
-          # created our three tags. Confirm via the systemtag API list.
-          set -e
-          for tag in signdocs:pendente signdocs:assinado signdocs:cancelado; do
-            docker exec --user www-data nc php occ tag:list 2>/dev/null \
-              | grep -q "$tag" || { echo "Missing tag: $tag" >&2; exit 1; }
-          done
+          # Tags should still exist — no duplicates from the repair-step
+          # running a second time.
+          docker exec --user www-data nc php -r '
+            $db = new PDO("sqlite:/var/www/html/data/nextcloud.db");
+            $count = (int) $db->query("SELECT COUNT(*) FROM oc_systemtag WHERE name LIKE \"signdocs:%\"")->fetchColumn();
+            if ($count !== 3) { fwrite(STDERR, "expected 3 signdocs tags, got $count\n"); exit(1); }
+          '
 
       - name: Capture NC logs on failure
         if: failure()
         run: |
+          echo "::group::nextcloud.log"
           docker exec nc cat /var/www/html/data/nextcloud.log 2>&1 | tail -200 || true
-          docker logs nc 2>&1 | tail -80 || true
+          echo "::endgroup::"
+          echo "::group::container logs"
+          docker logs nc 2>&1 | tail -120 || true
+          echo "::endgroup::"
 
       - name: Cleanup
         if: always()
