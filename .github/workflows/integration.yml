@@ -98,9 +98,11 @@ jobs:
           docker exec --user www-data nc php occ config:system:set apps_paths 1 url --value="/custom_apps"
           docker exec --user www-data nc php occ config:system:set apps_paths 1 writable --value=false --type=boolean
 
-      - name: Enable signdocs_brasil (runs migrations + repair-steps)
+      - name: Enable signdocs_brasil (verbose)
         run: |
-          docker exec --user www-data nc php occ app:enable signdocs_brasil
+          # -vvv surfaces migration-step output (the `$output->info(...)`
+          # lines from postSchemaChange in particular).
+          docker exec --user www-data nc php occ app:enable -vvv signdocs_brasil
           docker exec --user www-data nc php occ app:list 2>/dev/null \
             | awk '/^Enabled:/{p=1} p' | grep -q signdocs_brasil
 
