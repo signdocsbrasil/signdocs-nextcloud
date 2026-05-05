@@ -1,0 +1,89 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+    <id>signdocs_brasil</id>
+    <name>SignDocs Brasil</name>
+    <name lang="pt_BR">SignDocs Brasil</name>
+    <summary>Sign documents with ICP-Brasil and electronic signatures, directly from your Files app.</summary>
+    <summary lang="pt_BR">Assine documentos com certificado ICP-Brasil e assinatura eletrônica direto do seu Nextcloud.</summary>
+    <description><![CDATA[
+SignDocs Brasil integration for Nextcloud — send any document for signature without leaving your Files app.
+
+Features:
+
+- Right-click any PDF, DOCX or ODT and choose **"Assinar com SignDocs"**.
+- Multi-party signing flows: sequential or parallel signers.
+- ICP-Brasil A1 / A3 digital certificates and simple electronic signatures.
+- Status badges on files via SystemTags: **assinado**, **pendente**, **cancelado**.
+- Activity stream + in-app notifications when signatures complete.
+- Per-user OAuth or shared tenant API key (admin choice).
+- LGPD-friendly: works with on-premise Nextcloud + Magalu Cloud or any S3-compatible storage.
+- Pairs with the SignDocs LibreOffice extension for end-to-end sovereign signing.
+
+Requires a SignDocs Brasil account (free tier available at https://signdocs.com.br).
+    ]]></description>
+    <description lang="pt_BR"><![CDATA[
+Integração SignDocs Brasil para Nextcloud — envie qualquer documento para assinatura sem sair do app de Arquivos.
+
+Recursos:
+
+- Clique direito em qualquer PDF, DOCX ou ODT e escolha **"Assinar com SignDocs"**.
+- Fluxos multi-parte: assinantes sequenciais ou paralelos.
+- Certificados digitais ICP-Brasil A1 / A3 e assinatura eletrônica simples.
+- Etiquetas de status nos arquivos: **assinado**, **pendente**, **cancelado**.
+- Atividades + notificações no Nextcloud quando uma assinatura é concluída.
+- OAuth por usuário ou chave de API compartilhada do tenant (escolha do admin).
+- Compatível com LGPD: funciona com Nextcloud on-premise + Magalu Cloud ou qualquer storage S3-compatível.
+- Combina com a extensão SignDocs para LibreOffice para uma pilha de assinatura 100% soberana.
+
+Requer uma conta SignDocs Brasil (plano gratuito disponível em https://signdocs.com.br).
+    ]]></description>
+    <version>0.1.0</version>
+    <licence>agpl</licence>
+    <author mail="dev@signdocs.com.br" homepage="https://signdocs.com.br">SignDocs Brasil</author>
+    <namespace>SignDocsBrasil</namespace>
+    <category>files</category>
+    <category>integration</category>
+    <category>office</category>
+    <website>https://signdocs.com.br</website>
+    <bugs>https://github.com/signdocsbrasil/signdocs-nextcloud/issues</bugs>
+    <repository type="git">https://github.com/signdocsbrasil/signdocs-nextcloud.git</repository>
+    <screenshot>https://signdocs.com.br/nextcloud/screenshots/files-action.png</screenshot>
+    <screenshot>https://signdocs.com.br/nextcloud/screenshots/signing-dialog.png</screenshot>
+    <screenshot>https://signdocs.com.br/nextcloud/screenshots/personal-settings.png</screenshot>
+
+    <dependencies>
+        <php min-version="8.1"/>
+        <nextcloud min-version="27" max-version="30"/>
+    </dependencies>
+
+    <background-jobs>
+        <job>OCA\SignDocsBrasil\BackgroundJob\PollPendingSessions</job>
+    </background-jobs>
+
+    <repair-steps>
+        <post-migration>
+            <step>OCA\SignDocsBrasil\Migration\EnsureSystemTags</step>
+        </post-migration>
+    </repair-steps>
+
+    <settings>
+        <admin>OCA\SignDocsBrasil\Settings\Admin</admin>
+        <admin-section>OCA\SignDocsBrasil\Settings\AdminSection</admin-section>
+        <personal>OCA\SignDocsBrasil\Settings\Personal</personal>
+        <personal-section>OCA\SignDocsBrasil\Settings\PersonalSection</personal-section>
+    </settings>
+
+    <activity>
+        <settings>
+            <setting>OCA\SignDocsBrasil\Activity\Setting</setting>
+        </settings>
+        <providers>
+            <provider>OCA\SignDocsBrasil\Activity\Provider</provider>
+        </providers>
+    </activity>
+
+    <notifications>
+        <notifier>OCA\SignDocsBrasil\Notification\Notifier</notifier>
+    </notifications>
+</info>

@@ -1,0 +1,17 @@
+{
+	"translations": {
+		"SignDocs Brasil": "SignDocs Brasil",
+		"SignDocs Brasil signing events": "SignDocs Brasil signing events",
+		"Files": "Files",
+		"Conecte sua conta SignDocs Brasil para enviar documentos para assinatura direto do Nextcloud.": "Connect your SignDocs Brasil account to send documents for signature directly from Nextcloud.",
+		"Configure o modo do tenant (OAuth por usuário ou chave compartilhada) e o segredo HMAC do webhook.": "Configure tenant mode (per-user OAuth or shared API key) and the webhook HMAC secret.",
+		"Documento \"%s\" foi assinado": "Document \"%s\" has been signed",
+		"Todos os signatários assinaram. O documento assinado já está disponível.": "All signers have signed. The signed document is now available.",
+		"Assinatura de \"%s\" foi cancelada": "Signature of \"%s\" was cancelled",
+		"Assinatura de \"%s\" expirou": "Signature of \"%s\" expired",
+		"Você enviou \"%s\" para assinatura": "You sent \"%s\" for signature",
+		"\"%s\" foi assinado por todos os signatários": "\"%s\" was signed by all signers",
+		"Assinatura de \"%s\" cancelada": "Signature of \"%s\" cancelled"
+	},
+	"pluralForm": "nplurals=2; plural=(n != 1);"
+}

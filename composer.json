@@ -1,0 +1,51 @@
+{
+    "name": "signdocs-brasil/signdocs-nextcloud",
+    "description": "Nextcloud app for SignDocs Brasil — sign documents from the Files app with ICP-Brasil or electronic signatures",
+    "type": "nextcloud-app",
+    "license": "AGPL-3.0-or-later",
+    "authors": [
+        {
+            "name": "SignDocs Brasil",
+            "email": "dev@signdocs.com.br",
+            "homepage": "https://signdocs.com.br"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "signdocs-brasil/signdocs-brasil-php": "^1.4"
+    },
+    "require-dev": {
+        "nextcloud/coding-standard": "^1.3",
+        "nextcloud/ocp": "dev-master",
+        "phpstan/phpstan": "^1.12",
+        "phpunit/phpunit": "^10.0",
+        "squizlabs/php_codesniffer": "^3.10"
+    },
+    "autoload": {
+        "psr-4": {
+            "OCA\\SignDocsBrasil\\": "lib/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "OCA\\SignDocsBrasil\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "lint": "phpcs --standard=Nextcloud lib/ tests/",
+        "lint:fix": "phpcbf --standard=Nextcloud lib/ tests/",
+        "stan": "phpstan analyse --level=8 lib/",
+        "test": "phpunit --testsuite Unit",
+        "test:integration": "phpunit --testsuite Integration"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        },
+        "audit": {
+            "abandoned": "report",
+            "block-insecure": false
+        }
+    }
+}
