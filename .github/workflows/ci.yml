@@ -45,6 +45,12 @@ jobs:
             php -l "$f" >/dev/null
           done
 
+      - name: Validate appinfo/info.xml
+        run: |
+          set -e
+          curl -sf https://raw.githubusercontent.com/nextcloud/appstore/master/nextcloudappstore/api/v1/release/info.xsd -o /tmp/nc-info.xsd
+          xmllint --noout --schema /tmp/nc-info.xsd appinfo/info.xml
+
       - name: PHP CS Fixer (dry-run)
         run: composer cs:check
 

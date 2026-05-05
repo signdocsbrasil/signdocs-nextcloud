@@ -3,9 +3,9 @@
       xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
     <id>signdocs_brasil</id>
     <name>SignDocs Brasil</name>
-    <name lang="pt_BR">SignDocs Brasil</name>
+    <name lang="pt-br">SignDocs Brasil</name>
     <summary>Sign documents with ICP-Brasil and electronic signatures, directly from your Files app.</summary>
-    <summary lang="pt_BR">Assine documentos com certificado ICP-Brasil e assinatura eletrônica direto do seu Nextcloud.</summary>
+    <summary lang="pt-br">Assine documentos com certificado ICP-Brasil e assinatura eletrônica direto do seu Nextcloud.</summary>
     <description><![CDATA[
 SignDocs Brasil integration for Nextcloud — send any document for signature without leaving your Files app.
 
@@ -22,7 +22,7 @@ Features:
 
 Requires a SignDocs Brasil account (free tier available at https://signdocs.com.br).
     ]]></description>
-    <description lang="pt_BR"><![CDATA[
+    <description lang="pt-br"><![CDATA[
 Integração SignDocs Brasil para Nextcloud — envie qualquer documento para assinatura sem sair do app de Arquivos.
 
 Recursos:
@@ -82,8 +82,4 @@ Requer uma conta SignDocs Brasil (plano gratuito disponível em https://signdocs
             <provider>OCA\SignDocsBrasil\Activity\Provider</provider>
         </providers>
     </activity>
-
-    <notifications>
-        <notifier>OCA\SignDocsBrasil\Notification\Notifier</notifier>
-    </notifications>
 </info>
