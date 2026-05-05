@@ -29,9 +29,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Image tags from hub.docker.com/_/nextcloud
-        # 27 + 28 are still receiving security patches as of writing.
-        nc-version: ['stable27', 'stable28', 'stable29', 'stable30']
+        # Image tags from hub.docker.com/_/nextcloud (bare numeric series tags
+        # resolve to the latest patch in each NC major). 27 + 28 are still
+        # receiving security patches as of 2026-05-05.
+        nc-version: ['27', '28', '29', '30']
 
     steps:
       - uses: actions/checkout@v4
