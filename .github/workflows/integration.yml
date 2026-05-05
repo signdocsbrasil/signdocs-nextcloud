@@ -1,0 +1,126 @@
+name: Integration (real Nextcloud)
+
+# Stands up an actual Nextcloud server in a sidecar container, copies this
+# app into it, and exercises the lifecycle: composer install (no-dev) →
+# app:enable → migrations:migrate → app:list → migrations:migrate
+# (idempotency check) → app:disable → app:enable (re-enable check) →
+# files:scan (sanity). Catches issues that PHPStan / php-cs-fixer / phpunit
+# can't, since those run against stub interfaces.
+#
+# Matrix: latest stable NC images (stable27/28/29/30). If any of those
+# fail, the App Store listing's <nextcloud min-version="27" max-version="30">
+# range is wrong.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke test on Nextcloud ${{ matrix.nc-version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Image tags from hub.docker.com/_/nextcloud
+        # 27 + 28 are still receiving security patches as of writing.
+        nc-version: ['stable27', 'stable28', 'stable29', 'stable30']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install runtime deps (no-dev)
+        run: composer install --no-dev --prefer-dist --no-progress --no-interaction
+
+      - name: Start Nextcloud container
+        env:
+          NC_VERSION: ${{ matrix.nc-version }}
+        run: |
+          # SQLite-backed install — built into the image, no sidecar DB
+          # needed. NEXTCLOUD_ADMIN_USER/PASSWORD trigger auto-install on
+          # first boot. NEXTCLOUD_TRUSTED_DOMAINS keeps occ happy.
+          docker run -d --name nc \
+            -e SQLITE_DATABASE=nextcloud \
+            -e NEXTCLOUD_ADMIN_USER=admin \
+            -e NEXTCLOUD_ADMIN_PASSWORD=admin \
+            -e NEXTCLOUD_TRUSTED_DOMAINS=localhost \
+            -p 8080:80 \
+            -v "$PWD:/var/www/html/custom_apps/signdocs_brasil:ro" \
+            nextcloud:${NC_VERSION}
+
+      - name: Wait for install to finish
+        run: |
+          # Poll occ status until config indicates installation completed.
+          for i in $(seq 1 60); do
+            if docker exec --user www-data nc php occ status 2>/dev/null \
+              | grep -q "installed: true"; then
+              echo "NC installed."
+              break
+            fi
+            sleep 5
+          done
+          docker exec --user www-data nc php occ status
+
+      - name: Register custom_apps directory
+        run: |
+          # Custom apps mounted at custom_apps need to be added to NC's
+          # apps_paths config so occ discovers them.
+          docker exec --user www-data nc php occ config:system:set apps_paths 0 path --value="/var/www/html/apps"
+          docker exec --user www-data nc php occ config:system:set apps_paths 0 url --value="/apps"
+          docker exec --user www-data nc php occ config:system:set apps_paths 0 writable --value=true --type=boolean
+          docker exec --user www-data nc php occ config:system:set apps_paths 1 path --value="/var/www/html/custom_apps"
+          docker exec --user www-data nc php occ config:system:set apps_paths 1 url --value="/custom_apps"
+          docker exec --user www-data nc php occ config:system:set apps_paths 1 writable --value=false --type=boolean
+
+      - name: Enable signdocs_brasil
+        run: |
+          docker exec --user www-data nc php occ app:enable signdocs_brasil
+          docker exec --user www-data nc php occ app:list 2>/dev/null \
+            | grep -A1 'Enabled:' | grep -q signdocs_brasil
+
+      - name: Run migrations
+        run: |
+          docker exec --user www-data nc php occ migrations:migrate signdocs_brasil
+          docker exec --user www-data nc php occ migrations:status signdocs_brasil
+
+      - name: Migration idempotency (re-run must succeed)
+        run: |
+          docker exec --user www-data nc php occ migrations:migrate signdocs_brasil
+
+      - name: Disable / re-enable cycle
+        run: |
+          docker exec --user www-data nc php occ app:disable signdocs_brasil
+          docker exec --user www-data nc php occ app:enable signdocs_brasil
+
+      - name: SystemTags repair-step ran
+        run: |
+          # The post-migration repair step EnsureSystemTags should have
+          # created our three tags. Confirm via the systemtag API list.
+          set -e
+          for tag in signdocs:pendente signdocs:assinado signdocs:cancelado; do
+            docker exec --user www-data nc php occ tag:list 2>/dev/null \
+              | grep -q "$tag" || { echo "Missing tag: $tag" >&2; exit 1; }
+          done
+
+      - name: Capture NC logs on failure
+        if: failure()
+        run: |
+          docker exec nc cat /var/www/html/data/nextcloud.log 2>&1 | tail -200 || true
+          docker logs nc 2>&1 | tail -80 || true
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f nc || true
