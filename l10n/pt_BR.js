@@ -1,5 +1,6 @@
-{
-	"translations": {
+OC.L10N.register(
+	"signdocs_brasil",
+	{
 		"SignDocs Brasil": "SignDocs Brasil",
 		"SignDocs Brasil signing events": "Eventos de assinatura SignDocs Brasil",
 		"Files": "Arquivos",
@@ -40,5 +41,5 @@
 		"Signatários": "Signatários",
 		"Validade (dias)": "Validade (dias)"
 	},
-	"pluralForm": "nplurals=2; plural=(n > 1);"
-}
+	"nplurals=2; plural=(n > 1);"
+);

@@ -54,6 +54,9 @@ jobs:
           curl -sf https://raw.githubusercontent.com/nextcloud/appstore/master/nextcloudappstore/api/v1/release/info.xsd -o /tmp/nc-info.xsd
           xmllint --noout --schema /tmp/nc-info.xsd appinfo/info.xml
 
+      - name: l10n parity (json vs js)
+        run: bin/check-l10n.sh
+
       - name: PHP CS Fixer (dry-run)
         run: composer cs:check
 
