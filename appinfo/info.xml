@@ -65,6 +65,9 @@ Requer uma conta SignDocs Brasil (plano gratuito disponível em https://signdocs
         <post-migration>
             <step>OCA\SignDocsBrasil\Migration\EnsureSystemTags</step>
         </post-migration>
+        <install>
+            <step>OCA\SignDocsBrasil\Migration\EnsureSystemTags</step>
+        </install>
     </repair-steps>
 
     <settings>
