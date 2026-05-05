@@ -5,12 +5,20 @@ declare(strict_types=1);
 namespace OCA\SignDocsBrasil\Migration;
 
 use Closure;
+use OCA\SignDocsBrasil\AppInfo\Application;
 use OCP\DB\ISchemaWrapper;
 use OCP\DB\Types;
 use OCP\Migration\IOutput;
 use OCP\Migration\SimpleMigrationStep;
+use OCP\SystemTag\ISystemTagManager;
+use OCP\SystemTag\TagAlreadyExistsException;
 
 class Version000100Date20260505000000 extends SimpleMigrationStep {
+
+	public function __construct(
+		private readonly ISystemTagManager $tagManager,
+	) {
+	}
 
 	public function changeSchema(IOutput $output, Closure $schemaClosure, array $options): ?ISchemaWrapper {
 		/** @var ISchemaWrapper $schema */
@@ -65,5 +73,28 @@ class Version000100Date20260505000000 extends SimpleMigrationStep {
 		}
 
 		return $schema;
+	}
+
+	/**
+	 * Create the three signing-status SystemTags.
+	 *
+	 * postSchemaChange runs on every app:enable (fresh installs and upgrades),
+	 * which is what we want — NC's <repair-steps> only run on `occ maintenance:repair`
+	 * and during version upgrades, NOT on first install. Putting tag creation
+	 * here guarantees they exist before the Files action ever needs them.
+	 */
+	public function postSchemaChange(IOutput $output, Closure $schemaClosure, array $options): void {
+		foreach ([
+			Application::TAG_PENDENTE,
+			Application::TAG_ASSINADO,
+			Application::TAG_CANCELADO,
+		] as $tagName) {
+			try {
+				$this->tagManager->createTag($tagName, true, false);
+				$output->info('Created SystemTag: ' . $tagName);
+			} catch (TagAlreadyExistsException) {
+				// idempotent — fine on re-runs and upgrades
+			}
+		}
 	}
 }
