@@ -9,6 +9,7 @@ use OCA\SignDocsBrasil\Db\SigningSession;
 use OCA\SignDocsBrasil\Db\SigningSessionMapper;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Utility\ITimeFactory;
+use OCP\Files\File;
 use OCP\Files\IRootFolder;
 use OCP\Files\NotFoundException;
 use OCP\IUserSession;
@@ -59,7 +60,7 @@ class SigningSessionService {
 
 		$userFolder = $this->rootFolder->getUserFolder($userId);
 		$nodes = $userFolder->getById($fileId);
-		if (empty($nodes)) {
+		if (empty($nodes) || !$nodes[0] instanceof File) {
 			throw new NotFoundException('File not found in user storage: ' . $fileId);
 		}
 		$file = $nodes[0];
@@ -70,10 +71,10 @@ class SigningSessionService {
 
 		$client = $this->clientFactory->forCurrentUser();
 		$policy = new Policy(profile: $this->mapModeToProfile($options['mode'] ?? 'electronic'));
-		$expiresInMinutes = isset($options['validityDays']) ? max(5, (int) $options['validityDays'] * 1440) : null;
+		$expiresInMinutes = isset($options['validityDays']) ? max(5, (int)$options['validityDays'] * 1440) : null;
 		$metadata = [
 			'source' => 'nextcloud',
-			'nc_file_id' => (string) $fileId,
+			'nc_file_id' => (string)$fileId,
 			'nc_user_id' => $userId,
 		];
 
@@ -218,7 +219,7 @@ class SigningSessionService {
 		try {
 			$tags = $this->tagManager->getAllTags(null, $tagName);
 			$tag = $tags[array_key_first($tags)] ?? $this->tagManager->createTag($tagName, true, false);
-			$this->tagObjectMapper->assignTags((string) $fileId, 'files', $tag->getId());
+			$this->tagObjectMapper->assignTags((string)$fileId, 'files', $tag->getId());
 		} catch (TagNotFoundException $e) {
 			$this->logger->warning('Status tag missing, skipping', ['tag' => $tagName, 'exception' => $e]);
 		}

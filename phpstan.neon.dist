@@ -1,0 +1,15 @@
+parameters:
+    level: 5
+    # OCP types are sometimes more permissive than reality (callers pass null
+    # where stubs claim non-null, e.g. IUserSession::getUser); treating PHPDoc
+    # types as uncertain lets our defensive guards coexist with the stubs.
+    treatPhpDocTypesAsCertain: false
+    paths:
+        - lib
+    bootstrapFiles:
+        - tests/bootstrap.php
+        - tests/stubs/oc_hooks.php
+    scanDirectories:
+        - vendor/nextcloud/ocp/OCP
+        - vendor/nextcloud/ocp/NCU
+    ignoreErrors: []

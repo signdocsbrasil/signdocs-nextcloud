@@ -6,7 +6,6 @@ namespace OCA\SignDocsBrasil\Service;
 
 use OCA\SignDocsBrasil\AppInfo\Application;
 use OCP\IUserSession;
-use Psr\Log\LoggerInterface;
 use SignDocsBrasil\Api\Config;
 use SignDocsBrasil\Api\SignDocsBrasilClient;
 
@@ -25,7 +24,6 @@ class SignDocsClientFactory {
 	public function __construct(
 		private readonly CredentialsService $credentials,
 		private readonly IUserSession $userSession,
-		private readonly LoggerInterface $logger,
 	) {
 	}
 
