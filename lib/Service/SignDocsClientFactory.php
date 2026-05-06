@@ -52,6 +52,19 @@ class SignDocsClientFactory {
 		return $this->buildOAuthClient($userId);
 	}
 
+	/**
+	 * Build a transient client from explicit credentials. Used by the admin
+	 * "Test connection" button so credentials can be validated *before* the
+	 * admin saves them — no need to commit bad creds to disk first.
+	 */
+	public function forCredentials(string $clientId, string $clientSecret): SignDocsBrasilClient {
+		return new SignDocsBrasilClient(new Config(
+			clientId: $clientId,
+			clientSecret: $clientSecret,
+			baseUrl: $this->credentials->getApiBaseUrl(),
+		));
+	}
+
 	private function buildSharedClient(): SignDocsBrasilClient {
 		$creds = $this->credentials->getTenantApiKey();
 		if ($creds === null) {

@@ -1,0 +1,134 @@
+/* Admin settings page styling for the SignDocs Brasil app.
+ * Extra layout polish on top of NC's default fieldset/label rendering. */
+
+#signdocs-admin-app {
+	max-width: 720px;
+}
+
+.signdocs-admin-signup {
+	padding: 12px 14px;
+	margin: 8px 0 16px;
+	background: var(--color-background-hover, #f5f5f5);
+	border-left: 3px solid var(--color-primary, #0082c9);
+	border-radius: 4px;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.signdocs-admin-signup code {
+	font-family: var(--font-monospace, monospace);
+	font-size: 12px;
+	background: rgba(0, 0, 0, 0.05);
+	padding: 1px 6px;
+	border-radius: 3px;
+}
+
+.signdocs-admin-signup a {
+	color: var(--color-primary, #0082c9);
+	font-weight: 600;
+	text-decoration: underline;
+}
+
+.signdocs-admin-hint {
+	margin: 4px 0 0;
+	font-size: 12px;
+	color: var(--color-text-lighter, #666);
+}
+
+#signdocs-admin-app fieldset {
+	border: 1px solid var(--color-border, #ddd);
+	border-radius: 6px;
+	padding: 12px 16px;
+	margin-bottom: 16px;
+}
+
+#signdocs-admin-app legend {
+	font-weight: 600;
+	padding: 0 8px;
+	color: var(--color-main-text, #000);
+}
+
+#signdocs-admin-app label {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-bottom: 8px;
+	font-size: 13px;
+}
+
+#signdocs-admin-app label input[type="text"],
+#signdocs-admin-app label input[type="password"] {
+	font-family: var(--font-monospace, monospace);
+	font-size: 13px;
+}
+
+.signdocs-admin-test-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-top: 8px;
+}
+
+.signdocs-admin-test-btn {
+	padding: 6px 14px;
+	border: 1px solid var(--color-border-dark, #ccc);
+	border-radius: 4px;
+	background: var(--color-background-hover, #f5f5f5);
+	cursor: pointer;
+	font-size: 13px;
+}
+
+.signdocs-admin-test-btn:hover:not(:disabled) {
+	background: var(--color-background-darker, #ebebeb);
+}
+
+.signdocs-admin-test-btn:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
+.signdocs-admin-test-result {
+	font-size: 13px;
+}
+
+.signdocs-admin-test-result[data-kind="pending"] {
+	color: var(--color-text-lighter, #666);
+}
+
+.signdocs-admin-test-result[data-kind="ok"] {
+	color: var(--color-success, #2c7a2c);
+	font-weight: 600;
+}
+
+.signdocs-admin-test-result[data-kind="error"] {
+	color: var(--color-error, #c00);
+	font-weight: 600;
+}
+
+.signdocs-admin-webhook-url {
+	display: flex;
+	gap: 8px;
+	margin: 6px 0 12px;
+}
+
+.signdocs-admin-webhook-url input {
+	flex: 1;
+	font-family: var(--font-monospace, monospace);
+	font-size: 12px;
+	padding: 6px 10px;
+	background: var(--color-background-hover, #f5f5f5);
+	border: 1px solid var(--color-border, #ddd);
+	border-radius: 4px;
+	color: var(--color-main-text, #000);
+}
+
+.signdocs-admin-save-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-top: 16px;
+}
+
+#signdocs-admin-status {
+	font-size: 13px;
+}

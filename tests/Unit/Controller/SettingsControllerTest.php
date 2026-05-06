@@ -7,6 +7,7 @@ namespace OCA\SignDocsBrasil\Tests\Unit\Controller;
 use OCA\SignDocsBrasil\AppInfo\Application;
 use OCA\SignDocsBrasil\Controller\SettingsController;
 use OCA\SignDocsBrasil\Service\CredentialsService;
+use OCA\SignDocsBrasil\Service\SignDocsClientFactory;
 use OCP\AppFramework\Http;
 use OCP\IRequest;
 use OCP\IUser;
@@ -31,6 +32,8 @@ class SettingsControllerTest extends TestCase {
 	private $credentials;
 	/** @var IUserSession&MockObject */
 	private $userSession;
+	/** @var SignDocsClientFactory&MockObject */
+	private $clientFactory;
 	/** @var IUser&MockObject */
 	private $user;
 
@@ -41,6 +44,7 @@ class SettingsControllerTest extends TestCase {
 		$this->request = $this->createMock(IRequest::class);
 		$this->credentials = $this->createMock(CredentialsService::class);
 		$this->userSession = $this->createMock(IUserSession::class);
+		$this->clientFactory = $this->createMock(SignDocsClientFactory::class);
 		$this->user = $this->createMock(IUser::class);
 		$this->user->method('getUID')->willReturn('alice');
 
@@ -48,6 +52,7 @@ class SettingsControllerTest extends TestCase {
 			$this->request,
 			$this->credentials,
 			$this->userSession,
+			$this->clientFactory,
 		);
 	}
 
@@ -172,5 +177,71 @@ class SettingsControllerTest extends TestCase {
 		);
 
 		self::assertSame(Http::STATUS_OK, $response->getStatus());
+	}
+
+	public function testTestConnectionRequiresStoredCredsWhenBodyIsEmpty(): void {
+		// Admin clicks "Testar conexão" without typing anything → should use
+		// stored creds. If none are stored, return a 422 rather than 500.
+		$this->credentials->method('getTenantApiKey')->willReturn(null);
+		$this->clientFactory->expects(self::never())->method('forCredentials');
+
+		$response = $this->controller->testConnection();
+
+		self::assertSame(Http::STATUS_UNPROCESSABLE_ENTITY, $response->getStatus());
+		self::assertFalse($response->getData()['ok']);
+		self::assertSame('no_credentials', $response->getData()['error']);
+	}
+
+	public function testTestConnectionUsesProvidedCredsWhenSupplied(): void {
+		// Admin types fresh creds and clicks Test before saving — they should
+		// be used directly, NOT the stored creds (so the test can validate
+		// before commit).
+		$this->credentials->expects(self::never())->method('getTenantApiKey');
+		$this->clientFactory->expects(self::once())
+			->method('forCredentials')
+			->with('cid_typed', 'csec_typed')
+			->willThrowException(new \RuntimeException('test wiring proven'));
+
+		$response = $this->controller->testConnection('cid_typed', 'csec_typed');
+
+		// Either 502 (network failure simulated by exception) — what matters
+		// here is forCredentials was called with the typed values.
+		self::assertSame(Http::STATUS_BAD_GATEWAY, $response->getStatus());
+		self::assertFalse($response->getData()['ok']);
+	}
+
+	public function testTestConnectionFallsBackToStoredCredsWhenBodyOmitted(): void {
+		// Empty body → load saved creds, invoke factory with those.
+		$this->credentials->method('getTenantApiKey')
+			->willReturn(['clientId' => 'cid_saved', 'clientSecret' => 'csec_saved']);
+		$this->credentials->method('getApiBaseUrl')->willReturn('https://api.signdocs.com.br');
+
+		$this->clientFactory->expects(self::once())
+			->method('forCredentials')
+			->with('cid_saved', 'csec_saved')
+			->willThrowException(new \RuntimeException('upstream timeout'));
+
+		$response = $this->controller->testConnection();
+
+		self::assertSame(Http::STATUS_BAD_GATEWAY, $response->getStatus());
+		self::assertFalse($response->getData()['ok']);
+		self::assertSame('auth_failed', $response->getData()['error']);
+		self::assertSame('https://api.signdocs.com.br', $response->getData()['baseUrl']);
+	}
+
+	public function testTestConnectionEmptyStringTreatedAsAbsent(): void {
+		// Admin clears the input fields and clicks Test → "" should not
+		// reach the factory as bogus credentials. Treat as missing → fall
+		// back to stored creds.
+		$this->credentials->method('getTenantApiKey')
+			->willReturn(['clientId' => 'cid_saved', 'clientSecret' => 'csec_saved']);
+
+		$this->clientFactory->expects(self::once())
+			->method('forCredentials')
+			->with('cid_saved', 'csec_saved')
+			->willThrowException(new \RuntimeException('e'));
+
+		$response = $this->controller->testConnection('', '');
+		self::assertSame(Http::STATUS_BAD_GATEWAY, $response->getStatus());
 	}
 }

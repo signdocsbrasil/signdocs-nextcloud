@@ -26,6 +26,7 @@ return [
 
 		// Admin settings
 		['name' => 'settings#adminUpdate', 'url' => '/api/v1/admin/settings', 'verb' => 'POST'],
+		['name' => 'settings#testConnection', 'url' => '/api/v1/admin/test-connection', 'verb' => 'POST'],
 
 		// Webhook receiver (public, HMAC-verified)
 		['name' => 'webhook#receive', 'url' => '/api/v1/webhook', 'verb' => 'POST'],

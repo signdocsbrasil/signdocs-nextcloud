@@ -2,6 +2,7 @@
 /** @var array $_ */
 /** @var \OCP\IL10N $l */
 script('signdocs_brasil', 'signdocs-admin-settings');
+style('signdocs_brasil', 'signdocs-admin-settings');
 ?>
 <div id="signdocs-admin-settings" class="section">
 	<h2><?php p($l->t('SignDocs Brasil')); ?></h2>
