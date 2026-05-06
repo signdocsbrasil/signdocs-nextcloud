@@ -103,4 +103,12 @@ Requer uma conta SignDocs Brasil (plano gratuito disponível em https://signdocs
             <provider>OCA\SignDocsBrasil\Activity\Provider</provider>
         </providers>
     </activity>
+
+    <navigations>
+        <navigation>
+            <name>SignDocs Brasil</name>
+            <route>signdocs_brasil.page.index</route>
+            <order>50</order>
+        </navigation>
+    </navigations>
 </info>

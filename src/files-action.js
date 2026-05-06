@@ -406,3 +406,13 @@ const action = new FileAction({
 })
 
 registerFileAction(action)
+
+// Allow the top-nav landing page (and any future entry surface) to drive
+// the same dialog without going through the Files app's right-click menu.
+// Dispatching a `signdocs:open-dialog` CustomEvent with `{detail: {id, name,
+// mime}}` opens the modal as if the user had right-clicked the file.
+window.addEventListener('signdocs:open-dialog', (event) => {
+	const { id, name, mime } = event.detail || {}
+	if (!id || !name) return
+	openSigningDialog({ id, name, mime })
+})
