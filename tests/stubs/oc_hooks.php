@@ -11,7 +11,7 @@ namespace OC\Hooks {
 	}
 }
 
-namespace OCP\Files\Events {
+namespace OCA\Files\Event {
 	use OCP\EventDispatcher\Event;
 
 	class LoadAdditionalScriptsEvent extends Event {

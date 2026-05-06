@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace OCA\SignDocsBrasil\AppInfo;
 
+use OCA\Files\Event\LoadAdditionalScriptsEvent;
 use OCA\SignDocsBrasil\Listener\FilesLoadAdditionalScriptsListener;
 use OCA\SignDocsBrasil\Notification\Notifier;
 use OCP\AppFramework\App;
 use OCP\AppFramework\Bootstrap\IBootContext;
 use OCP\AppFramework\Bootstrap\IBootstrap;
 use OCP\AppFramework\Bootstrap\IRegistrationContext;
-use OCP\Files\Events\LoadAdditionalScriptsEvent;
 use OCP\Notification\IManager as INotificationManager;
 
 class Application extends App implements IBootstrap {

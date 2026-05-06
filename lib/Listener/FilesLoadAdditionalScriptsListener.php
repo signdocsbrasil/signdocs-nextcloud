@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace OCA\SignDocsBrasil\Listener;
 
+use OCA\Files\Event\LoadAdditionalScriptsEvent;
 use OCA\SignDocsBrasil\AppInfo\Application;
 use OCP\AppFramework\Services\IInitialState;
 use OCP\EventDispatcher\Event;
 use OCP\EventDispatcher\IEventListener;
-use OCP\Files\Events\LoadAdditionalScriptsEvent;
 use OCP\Util;
 
 /**

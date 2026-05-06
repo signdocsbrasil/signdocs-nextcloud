@@ -13,6 +13,8 @@ composer.phar
 /build/
 *.zip
 *.tar.gz
+*.tar.gz.sig
+*.tar.gz.sig.b64
 
 # OS / IDE
 .DS_Store
