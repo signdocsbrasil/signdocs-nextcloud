@@ -1,8 +1,15 @@
 #signdocs-app {
 	max-width: 920px;
 	margin: 32px auto;
-	padding: 0 24px;
+	padding: 32px 32px 40px;
 	color: var(--color-main-text, #000);
+	/* Opaque card so content reads on top of NC's wallpaper. The default
+	 * NC content area on /apps/<id>/ doesn't have a white background, the
+	 * page sits directly on the user's wallpaper which obliterates low-
+	 * contrast text. */
+	background: var(--color-main-background, #fff);
+	border-radius: var(--border-radius-large, 12px);
+	box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
 }
 
 .signdocs-landing-header {
@@ -13,10 +20,15 @@
 .signdocs-landing-header h1 {
 	font-size: 28px;
 	margin: 0 0 8px;
+	color: var(--color-main-text, #000);
 }
 
 .signdocs-landing-subtitle {
-	color: var(--color-text-maxcontrast, #666);
+	/* --color-text-lighter is the standard "secondary text" token in NC
+	 * — readable on white background, not the near-invisible
+	 * --color-text-maxcontrast (which is for *de-emphasis on solid
+	 * coloured backgrounds*, not for body text on white). */
+	color: var(--color-text-lighter, #555);
 	margin: 0;
 	font-size: 15px;
 }
