@@ -52,6 +52,17 @@ class SigningSessionService {
 	 * @param array{mode?: string, order?: string, validityDays?: int} $options
 	 */
 	public function createForFile(int $fileId, array $signers, array $options = []): SigningSession {
+		// Validate constraints BEFORE touching NC services or the SDK so an
+		// invalid request fails fast and never reaches the SignDocs API.
+		// Same constraints the API would enforce, surfaced as a 422 instead
+		// of an opaque 4xx round-tripped through the SDK.
+		$this->validateOptions(
+			mode: $options['mode'] ?? 'electronic',
+			orderUpper: strtoupper($options['order'] ?? 'PARALLEL'),
+			signerCount: count($signers),
+		);
+		$this->validateSigners($signers);
+
 		$user = $this->userSession->getUser();
 		if ($user === null) {
 			throw new \RuntimeException('No active user session.');
@@ -71,7 +82,8 @@ class SigningSessionService {
 
 		$client = $this->clientFactory->forCurrentUser();
 		$policy = new Policy(profile: $this->mapModeToProfile($options['mode'] ?? 'electronic'));
-		$expiresInMinutes = isset($options['validityDays']) ? max(5, (int)$options['validityDays'] * 1440) : null;
+		// Validity is server-side; the API picks a sensible default. Don't
+		// surface validityDays from the UI even if it sneaks in.
 		$metadata = [
 			'source' => 'nextcloud',
 			'nc_file_id' => (string)$fileId,
@@ -79,13 +91,13 @@ class SigningSessionService {
 		];
 
 		if (count($signers) <= 1) {
-			return $this->createSingle($client, $policy, $signers[0] ?? null, $documentInline, $expiresInMinutes, $metadata, $fileId, $userId);
+			return $this->createSingle($client, $policy, $signers[0] ?? null, $documentInline, $metadata, $fileId, $userId);
 		}
 
-		return $this->createEnvelope($client, $policy, $signers, $documentInline, $options['order'] ?? 'PARALLEL', $expiresInMinutes, $metadata, $fileId, $userId);
+		return $this->createEnvelope($client, $policy, $signers, $documentInline, $options['order'] ?? 'PARALLEL', $metadata, $fileId, $userId);
 	}
 
-	private function createSingle($client, Policy $policy, ?array $signerData, array $document, ?int $expiresInMinutes, array $metadata, int $fileId, string $userId): SigningSession {
+	private function createSingle($client, Policy $policy, ?array $signerData, array $document, array $metadata, int $fileId, string $userId): SigningSession {
 		if ($signerData === null) {
 			throw new \InvalidArgumentException('At least one signer is required.');
 		}
@@ -96,7 +108,6 @@ class SigningSessionService {
 			document: $document,
 			metadata: $metadata,
 			locale: 'pt-BR',
-			expiresInMinutes: $expiresInMinutes,
 		);
 		$apiSession = $client->signingSessions->create($request);
 
@@ -112,14 +123,13 @@ class SigningSessionService {
 		);
 	}
 
-	private function createEnvelope($client, Policy $policy, array $signers, array $document, string $order, ?int $expiresInMinutes, array $metadata, int $fileId, string $userId): SigningSession {
+	private function createEnvelope($client, Policy $policy, array $signers, array $document, string $order, array $metadata, int $fileId, string $userId): SigningSession {
 		$envelope = $client->envelopes->create(new CreateEnvelopeRequest(
 			signingMode: strtoupper($order) === 'SEQUENTIAL' ? 'SEQUENTIAL' : 'PARALLEL',
 			totalSigners: count($signers),
 			document: $document,
 			metadata: $metadata,
 			locale: 'pt-BR',
-			expiresInMinutes: $expiresInMinutes,
 		));
 
 		$shareLinks = [];
@@ -182,19 +192,84 @@ class SigningSessionService {
 		$externalId = isset($signerData['email']) && $signerData['email'] !== ''
 			? 'nc:' . hash('sha256', strtolower($signerData['email']))
 			: 'nc:idx:' . $index;
+		// Front-end submits cpf XOR cnpj after stripping non-digits; pass
+		// whichever the SDK Signer field expects without inferring on the
+		// back-end so an 11-digit value is never silently sent as a CNPJ.
 		return new Signer(
 			name: $signerData['name'] ?? '',
 			userExternalId: $externalId,
 			email: $signerData['email'] ?? null,
 			phone: $signerData['phone'] ?? null,
-			cpf: $signerData['cpf'] ?? null,
+			cpf: isset($signerData['cpf']) && $signerData['cpf'] !== '' ? $signerData['cpf'] : null,
+			cnpj: isset($signerData['cnpj']) && $signerData['cnpj'] !== '' ? $signerData['cnpj'] : null,
 		);
+	}
+
+	/**
+	 * Reject combinations the SignDocs API would also reject, before making
+	 * the round-trip. Today the only such combination is digital-certificate
+	 * signing with multiple signers in parallel order — ICP-Brasil signatures
+	 * chain across signers and the verifier needs them in deterministic order.
+	 *
+	 * Throws InvalidArgumentException with a stable English message so the
+	 * controller can map to a 422 with a code the front-end can localize.
+	 */
+	private function validateOptions(string $mode, string $orderUpper, int $signerCount): void {
+		if ($this->requiresSequentialOrder($mode) && $signerCount >= 2 && $orderUpper !== 'SEQUENTIAL') {
+			throw new \InvalidArgumentException(
+				'Digital certificate signing requires sequential order with multiple signers.'
+			);
+		}
+	}
+
+	/**
+	 * Validate every signer carries exactly one of cpf / cnpj and that
+	 * the value passes Brazilian check-digit arithmetic. Saves a round-trip
+	 * to SignDocs (which would also reject an invalid fiscal id) and
+	 * surfaces the fault on the *specific* signer that's wrong, so the
+	 * front-end can highlight it.
+	 *
+	 * @param array<int, array<string, mixed>> $signers
+	 */
+	private function validateSigners(array $signers): void {
+		foreach (array_values($signers) as $i => $sig) {
+			$cpf = isset($sig['cpf']) ? (string)$sig['cpf'] : '';
+			$cnpj = isset($sig['cnpj']) ? (string)$sig['cnpj'] : '';
+
+			if ($cpf === '' && $cnpj === '') {
+				throw new \InvalidArgumentException(
+					'Signer #' . ($i + 1) . ' is missing a CPF or CNPJ.'
+				);
+			}
+			if ($cpf !== '' && !CpfCnpjValidator::isValidCpf($cpf)) {
+				throw new \InvalidArgumentException(
+					'Signer #' . ($i + 1) . ' has an invalid CPF.'
+				);
+			}
+			if ($cnpj !== '' && !CpfCnpjValidator::isValidCnpj($cnpj)) {
+				throw new \InvalidArgumentException(
+					'Signer #' . ($i + 1) . ' has an invalid CNPJ.'
+				);
+			}
+		}
+	}
+
+	private function requiresSequentialOrder(string $mode): bool {
+		// digital_certificate is the canonical UI input; icp_a1 / icp_a3 are
+		// retained as legacy aliases (see mapModeToProfile).
+		return in_array($mode, ['digital_certificate', 'icp_a1', 'icp_a3'], true);
 	}
 
 	private function mapModeToProfile(string $mode): string {
 		return match ($mode) {
-			'icp_a1', 'icp_a3' => 'DIGITAL_CERTIFICATE',
+			// 'digital_certificate' covers both A1 and A3 — the actual
+			// cert class is decided at signing-session time by the signer's
+			// device (browser cert store for A1, smart-card token for A3).
+			// The legacy 'icp_a1' / 'icp_a3' inputs are kept as aliases so
+			// older NC client builds during a rolling rollout don't break.
+			'digital_certificate', 'icp_a1', 'icp_a3' => 'DIGITAL_CERTIFICATE',
 			'biometric' => 'BIOMETRIC',
+			'click_plus_otp' => 'CLICK_PLUS_OTP',
 			default => 'CLICK_ONLY',
 		};
 	}

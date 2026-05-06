@@ -37,6 +37,15 @@ class SigningController extends Controller {
 				['error' => 'not_connected', 'message' => $e->getMessage()],
 				Http::STATUS_PRECONDITION_FAILED
 			);
+		} catch (\InvalidArgumentException $e) {
+			// Constraint-violation rejections from the service (e.g. ICP
+			// digital-certificate + parallel order) — surface as 422 with a
+			// machine-readable error code so the front-end can localize the
+			// message and the SignDocs API never sees a doomed request.
+			return new DataResponse(
+				['error' => 'invalid_input', 'message' => $e->getMessage()],
+				Http::STATUS_UNPROCESSABLE_ENTITY
+			);
 		} catch (\Throwable $e) {
 			$this->logger->error('Failed to create signing session', [
 				'exception' => $e,
