@@ -67,11 +67,119 @@
 	color: inherit;
 }
 
+/* Parallel mode (default): drag handle / index / move buttons hidden;
+ * row is just name + email + cpf + remove. */
 .signdocs-signer-row {
 	display: grid;
-	grid-template-columns: 1fr 1fr 1fr 32px;
+	grid-template-columns: 0 0 1fr 1fr 1fr 0 0 32px;
 	gap: 6px;
 	margin-bottom: 6px;
+	align-items: center;
+}
+
+.signdocs-drag-handle,
+.signdocs-signer-index,
+.signdocs-move-up,
+.signdocs-move-down {
+	visibility: hidden;
+	pointer-events: none;
+	opacity: 0;
+}
+
+/* Sequential mode: expand the grid to make space for handle + index +
+ * up/down buttons, and reveal them. */
+.signdocs-signer-list.signdocs-sequential .signdocs-signer-row {
+	grid-template-columns: 20px 24px 1fr 1fr 1fr 24px 24px 32px;
+}
+
+.signdocs-signer-list.signdocs-sequential .signdocs-drag-handle,
+.signdocs-signer-list.signdocs-sequential .signdocs-signer-index,
+.signdocs-signer-list.signdocs-sequential .signdocs-move-up,
+.signdocs-signer-list.signdocs-sequential .signdocs-move-down {
+	visibility: visible;
+	pointer-events: auto;
+	opacity: 1;
+}
+
+.signdocs-drag-handle {
+	cursor: grab;
+	color: var(--color-text-maxcontrast, #888);
+	font-size: 16px;
+	user-select: none;
+	letter-spacing: -2px;
+	text-align: center;
+}
+
+.signdocs-drag-handle:active {
+	cursor: grabbing;
+}
+
+.signdocs-signer-row.signdocs-dragging {
+	opacity: 0.4;
+	background: var(--color-background-hover, #f5f5f5);
+	border: 1px dashed var(--color-primary, #0082c9);
+	border-radius: 4px;
+}
+
+.signdocs-signer-index {
+	color: var(--color-text-maxcontrast, #888);
+	font-variant-numeric: tabular-nums;
+	font-size: 13px;
+	text-align: right;
+	font-weight: 600;
+}
+
+.signdocs-move-up,
+.signdocs-move-down {
+	background: none;
+	border: 1px solid var(--color-border-dark, #ccc);
+	border-radius: 3px;
+	cursor: pointer;
+	font-size: 10px;
+	padding: 2px 4px;
+	color: var(--color-text-maxcontrast, #666);
+}
+
+.signdocs-move-up:hover:not(:disabled),
+.signdocs-move-down:hover:not(:disabled) {
+	background: var(--color-background-hover, #f0f0f0);
+}
+
+.signdocs-move-up:disabled,
+.signdocs-move-down:disabled {
+	opacity: 0.3;
+	cursor: not-allowed;
+}
+
+.signdocs-sequential-hint {
+	margin: 8px 0 0;
+	padding: 8px 10px;
+	background: var(--color-background-hover, #f5f5f5);
+	border-left: 3px solid var(--color-primary, #0082c9);
+	font-size: 12px;
+	color: var(--color-text-maxcontrast, #555);
+}
+
+.signdocs-order-locked-hint {
+	display: block;
+	margin-top: 4px;
+	font-size: 11px;
+	font-style: italic;
+	color: var(--color-text-maxcontrast, #777);
+}
+
+/* Restore the browser default [hidden] behavior — our display:block above
+ * has the same specificity and loads later, which would otherwise leave
+ * the ICP-locked hint stuck on screen after the user switches the mode
+ * dropdown back to a non-ICP option. */
+.signdocs-order-locked-hint[hidden] {
+	display: none;
+}
+
+.signdocs-form select:disabled {
+	background: var(--color-background-darker, #f0f0f0);
+	color: var(--color-text-maxcontrast, #888);
+	cursor: not-allowed;
 }
 
 .signdocs-remove-signer {
