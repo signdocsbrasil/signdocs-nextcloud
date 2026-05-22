@@ -77,6 +77,7 @@ EXCLUDE=(
     phpunit.xml.dist
     tests
     bin
+    screenshots
 )
 for path in "${EXCLUDE[@]}"; do
     rm -rf "$DEST/$path"

@@ -66,9 +66,9 @@ Requer uma conta SignDocs Brasil (plano gratuito disponível em https://signdocs
     <website>https://signdocs.com.br</website>
     <bugs>https://github.com/signdocsbrasil/signdocs-nextcloud/issues</bugs>
     <repository type="git">https://github.com/signdocsbrasil/signdocs-nextcloud.git</repository>
-    <screenshot>https://signdocs.com.br/nextcloud/screenshots/files-action.png</screenshot>
-    <screenshot>https://signdocs.com.br/nextcloud/screenshots/signing-dialog.png</screenshot>
-    <screenshot>https://signdocs.com.br/nextcloud/screenshots/personal-settings.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/signdocsbrasil/signdocs-nextcloud/main/screenshots/files-action.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/signdocsbrasil/signdocs-nextcloud/main/screenshots/signing-dialog.png</screenshot>
+    <screenshot>https://raw.githubusercontent.com/signdocsbrasil/signdocs-nextcloud/main/screenshots/app-home.png</screenshot>
 
     <dependencies>
         <php min-version="8.1"/>
