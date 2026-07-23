@@ -56,7 +56,7 @@ Quais dados saem do seu servidor Nextcloud:
 
 Requer uma conta SignDocs Brasil (plano gratuito disponível em https://signdocs.com.br).
     ]]></description>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
     <licence>agpl</licence>
     <author mail="dev@signdocs.com.br" homepage="https://signdocs.com.br">SignDocs Brasil</author>
     <namespace>SignDocsBrasil</namespace>
