@@ -239,4 +239,15 @@ class SigningSessionServiceHelpersTest extends TestCase {
 			['name' => 'C', 'email' => 'c@x.com', 'cpf' => '11111111111'],
 		]);
 	}
+
+	public function testSignedFileNameStripsExtensionAndAppendsSuffix(): void {
+		self::assertSame('Contrato-assinado.pdf', SigningSessionService::signedFileName('Contrato.pdf'));
+		self::assertSame('Contrato-assinado.pdf', SigningSessionService::signedFileName('Contrato.docx'));
+		self::assertSame('Meu.Contrato.v2-assinado.pdf', SigningSessionService::signedFileName('Meu.Contrato.v2.odt'));
+	}
+
+	public function testSignedFileNameFallsBackWhenOriginalMissing(): void {
+		self::assertSame('documento-assinado.pdf', SigningSessionService::signedFileName(null));
+		self::assertSame('documento-assinado.pdf', SigningSessionService::signedFileName(''));
+	}
 }

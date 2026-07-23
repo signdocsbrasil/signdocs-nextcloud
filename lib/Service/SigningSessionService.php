@@ -10,8 +10,10 @@ use OCA\SignDocsBrasil\Db\SigningSessionMapper;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\Files\File;
+use OCP\Files\Folder;
 use OCP\Files\IRootFolder;
 use OCP\Files\NotFoundException;
+use OCP\Http\Client\IClientService;
 use OCP\IUserSession;
 use OCP\SystemTag\ISystemTagManager;
 use OCP\SystemTag\ISystemTagObjectMapper;
@@ -44,6 +46,8 @@ class SigningSessionService {
 		private readonly ISystemTagObjectMapper $tagObjectMapper,
 		private readonly ITimeFactory $time,
 		private readonly LoggerInterface $logger,
+		private readonly CredentialsService $credentials,
+		private readonly IClientService $clientService,
 	) {
 	}
 
@@ -238,6 +242,127 @@ class SigningSessionService {
 			default => Application::TAG_PENDENTE,
 		};
 		$this->applyStatusTag($entity->getFileId(), $tag);
+	}
+
+	/**
+	 * Retrieve the signed/combined PDF for a completed session and store it in
+	 * the user's signed folder (default /Assinados), recording the resulting NC
+	 * node id. Idempotent: a session that already has a signed_file_id is left
+	 * untouched. Driven by the FetchSignedDocuments background job.
+	 */
+	public function saveSignedDocument(SigningSession $entity): void {
+		if ($entity->getSignedFileId() !== null) {
+			return;
+		}
+
+		$userId = $entity->getUserId();
+		$client = $this->clientFactory->forUser($userId);
+
+		$meta = json_decode((string)$entity->getMetadata(), true);
+		$kind = is_array($meta) ? ($meta['kind'] ?? 'session') : 'session';
+
+		// Resolve the presigned download URL for the signed artifact. Envelopes
+		// (session_id == envelopeId) use the combined stamp; single-signer flows
+		// use the per-transaction download.
+		if ($kind === 'envelope') {
+			$url = $client->envelopes->combinedStamp($entity->getSessionId())->downloadUrl;
+		} else {
+			$transactionId = $entity->getTransactionId();
+			if ($transactionId === null || $transactionId === '') {
+				$this->logger->warning('No transactionId to fetch signed document', ['sessionId' => $entity->getSessionId()]);
+				return;
+			}
+			$url = $client->documents->download($transactionId)->signedUrl;
+		}
+
+		if (!is_string($url) || $url === '') {
+			// Artifact not ready yet — the job retries on its next run.
+			$this->logger->info('Signed document not available yet', ['sessionId' => $entity->getSessionId()]);
+			return;
+		}
+
+		$content = $this->fetchSignedPdf($url);
+		if ($content === null) {
+			return;
+		}
+
+		$userFolder = $this->rootFolder->getUserFolder($userId);
+		$folder = $this->resolveSignedFolder($userFolder, $this->credentials->getDefaultSignedFolder($userId));
+		$name = $folder->getNonExistingName(self::signedFileName($this->originalFileName($userFolder, $entity->getFileId())));
+		$node = $folder->newFile($name, $content);
+
+		$entity->setSignedFileId((string)$node->getId());
+		$entity->setUpdatedAt($this->time->getTime());
+		$this->mapper->update($entity);
+
+		$this->logger->info('Saved signed document to Nextcloud', [
+			'sessionId' => $entity->getSessionId(),
+			'path' => $node->getPath(),
+		]);
+	}
+
+	/**
+	 * Fetch the signed PDF from a SignDocs-issued presigned URL. Returns null
+	 * (and logs) on any failure so the job can retry later. Validates HTTPS and
+	 * the PDF magic bytes; the URL is trusted (issued by the SignDocs API), so
+	 * no Content-Type allowlist is applied.
+	 */
+	private function fetchSignedPdf(string $url): ?string {
+		if (!str_starts_with(strtolower($url), 'https://')) {
+			$this->logger->warning('Refusing non-HTTPS signed-document URL');
+			return null;
+		}
+		try {
+			$response = $this->clientService->newClient()->get($url, [
+				'connect_timeout' => 5,
+				'timeout' => 60,
+				'verify' => true,
+				'http_errors' => true,
+			]);
+			$body = (string)$response->getBody();
+		} catch (\Throwable $e) {
+			$this->logger->warning('Failed to fetch signed document', ['exception' => $e]);
+			return null;
+		}
+		if ($body === '' || strncmp($body, '%PDF-', 5) !== 0) {
+			$this->logger->warning('Signed document was empty or not a PDF');
+			return null;
+		}
+		return $body;
+	}
+
+	/**
+	 * Resolve (creating if needed) the destination folder for signed documents.
+	 * Falls back to the user's root when the configured path is empty.
+	 */
+	private function resolveSignedFolder(Folder $userFolder, string $path): Folder {
+		$path = '/' . trim($path, '/');
+		if ($path === '/') {
+			return $userFolder;
+		}
+		if ($userFolder->nodeExists($path)) {
+			$existing = $userFolder->get($path);
+			if ($existing instanceof Folder) {
+				return $existing;
+			}
+		}
+		return $userFolder->newFolder($path);
+	}
+
+	private function originalFileName(Folder $userFolder, int $fileId): ?string {
+		$nodes = $userFolder->getById($fileId);
+		$node = $nodes[0] ?? null;
+		return $node !== null ? $node->getName() : null;
+	}
+
+	/**
+	 * Derive the signed-document filename from the original: strip a trailing
+	 * extension and append "-assinado.pdf".
+	 */
+	public static function signedFileName(?string $originalName): string {
+		$base = ($originalName !== null && $originalName !== '') ? $originalName : 'documento';
+		$base = preg_replace('/\.[A-Za-z0-9]{1,5}$/', '', $base) ?? $base;
+		return $base . '-assinado.pdf';
 	}
 
 	private function buildSigner(array $signerData, int $index): Signer {

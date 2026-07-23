@@ -91,4 +91,21 @@ class SigningSessionMapper extends QBMapper {
 			->setMaxResults($limit);
 		return $this->findEntities($qb);
 	}
+
+	/**
+	 * Completed sessions whose signed document hasn't been saved back into
+	 * Nextcloud yet — drives the FetchSignedDocuments job.
+	 *
+	 * @return SigningSession[]
+	 */
+	public function findCompletedWithoutSignedFile(int $limit = 20): array {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('*')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('status', $qb->createNamedParameter('completed', IQueryBuilder::PARAM_STR)))
+			->andWhere($qb->expr()->isNull('signed_file_id'))
+			->orderBy('updated_at', 'ASC')
+			->setMaxResults($limit);
+		return $this->findEntities($qb);
+	}
 }
