@@ -55,7 +55,7 @@ class WebhookControllerTest extends TestCase {
 
 	public function testReceiveReturnsServiceUnavailableWhenSecretMissing(): void {
 		$this->credentials->method('getWebhookSecret')->willReturn(null);
-		$this->service->expects(self::never())->method('applyStatusUpdate');
+		$this->service->expects(self::never())->method('applyStatusUpdateFromWebhook');
 
 		$response = $this->controller->receive();
 
@@ -74,7 +74,7 @@ class WebhookControllerTest extends TestCase {
 			['X-SignDocs-Signature', 'deadbeef'],
 			['X-SignDocs-Timestamp', (string)time()],
 		]);
-		$this->service->expects(self::never())->method('applyStatusUpdate');
+		$this->service->expects(self::never())->method('applyStatusUpdateFromWebhook');
 
 		$response = $this->controller->receive();
 
@@ -91,7 +91,7 @@ class WebhookControllerTest extends TestCase {
 			['X-SignDocs-Signature', $signature],
 			['X-SignDocs-Timestamp', (string)$expired],
 		]);
-		$this->service->expects(self::never())->method('applyStatusUpdate');
+		$this->service->expects(self::never())->method('applyStatusUpdateFromWebhook');
 
 		$response = $this->controller->receive();
 
@@ -121,5 +121,62 @@ class WebhookControllerTest extends TestCase {
 			timestampHeader: (string)$timestamp,
 			secret: self::SECRET,
 		));
+	}
+
+	/**
+	 * Regression: a single-signer TRANSACTION.COMPLETED is keyed by
+	 * transactionId (not sessionId). The original controller looked only for
+	 * sessionId/envelopeId and rejected every such event with 400.
+	 */
+	public function testExtractSingleSignerTransactionCompleted(): void {
+		$parsed = WebhookController::extractEvent([
+			'eventType' => 'TRANSACTION.COMPLETED',
+			'transactionId' => 'tx_1',
+			'data' => ['transactionId' => 'tx_1', 'status' => 'COMPLETED', 'evidenceId' => 'ev_1'],
+		]);
+
+		self::assertNotNull($parsed);
+		self::assertSame('tx_1', $parsed['transactionId']);
+		self::assertNull($parsed['sessionId']);
+		self::assertSame('COMPLETED', $parsed['status']);
+	}
+
+	/**
+	 * Regression: ENVELOPE.ALL_SIGNED carries NO data.status, and its top-level
+	 * transactionId is the last signer's tx — correlation must use data.envelopeId
+	 * and the status must be derived from the event type.
+	 */
+	public function testExtractEnvelopeAllSignedDerivesStatusAndUsesEnvelopeId(): void {
+		$parsed = WebhookController::extractEvent([
+			'eventType' => 'ENVELOPE.ALL_SIGNED',
+			'transactionId' => 'tx_lastsigner',
+			'data' => ['envelopeId' => 'env_1', 'totalSigners' => 2],
+		]);
+
+		self::assertNotNull($parsed);
+		self::assertNull($parsed['transactionId']);
+		self::assertSame('env_1', $parsed['sessionId']);
+		self::assertSame('completed', $parsed['status']);
+	}
+
+	public function testExtractEnvelopeCancelled(): void {
+		$parsed = WebhookController::extractEvent([
+			'eventType' => 'ENVELOPE.CANCELLED',
+			'transactionId' => 'env_1',
+			'data' => ['envelopeId' => 'env_1'],
+		]);
+
+		self::assertNotNull($parsed);
+		self::assertSame('env_1', $parsed['sessionId']);
+		self::assertSame('cancelled', $parsed['status']);
+	}
+
+	public function testExtractNonTerminalEventsAreIgnored(): void {
+		foreach (['ENVELOPE.CREATED', 'TRANSACTION.CREATED', 'STEP.STARTED', 'QUOTA.WARNING'] as $type) {
+			self::assertNull(
+				WebhookController::extractEvent(['eventType' => $type, 'data' => []]),
+				$type . ' should be ignored (no actionable status)',
+			);
+		}
 	}
 }

@@ -120,6 +120,7 @@ class SigningSessionService {
 				'transactionId' => $apiSession->transactionId,
 				'signers' => [['email' => $signerData['email'] ?? null, 'name' => $signerData['name'] ?? null]],
 			],
+			transactionId: $apiSession->transactionId,
 		);
 	}
 
@@ -161,26 +162,79 @@ class SigningSessionService {
 	}
 
 	/**
-	 * Apply webhook-delivered status update.
+	 * Apply a status update keyed by session/envelope id. Used by the polling
+	 * background job, which reconciles by the id it stored at create time.
 	 */
 	public function applyStatusUpdate(string $sessionId, string $status, ?string $signedFileId = null): void {
 		try {
 			$entity = $this->mapper->findBySessionId($sessionId);
 		} catch (DoesNotExistException) {
-			$this->logger->warning('Webhook for unknown SignDocs session', ['sessionId' => $sessionId]);
+			$this->logger->warning('Status update for unknown SignDocs session', ['sessionId' => $sessionId]);
 			return;
 		}
+		$this->applyToEntity($entity, $status, $signedFileId);
+	}
 
-		$entity->setStatus($status);
+	/**
+	 * Apply a webhook-delivered status update. TRANSACTION.* events are keyed by
+	 * transactionId; ENVELOPE.* events carry the envelope id (which single- and
+	 * multi-signer flows persist as session_id). Resolve by transactionId first,
+	 * then fall back to the session/envelope id.
+	 */
+	public function applyStatusUpdateFromWebhook(
+		?string $transactionId,
+		?string $sessionId,
+		string $status,
+		?string $signedFileId = null,
+	): void {
+		$entity = null;
+		if ($transactionId !== null && $transactionId !== '') {
+			try {
+				$entity = $this->mapper->findByTransactionId($transactionId);
+			} catch (DoesNotExistException) {
+				// fall through to session-id resolution
+			}
+		}
+		if ($entity === null && $sessionId !== null && $sessionId !== '') {
+			try {
+				$entity = $this->mapper->findBySessionId($sessionId);
+			} catch (DoesNotExistException) {
+				// unknown below
+			}
+		}
+		if ($entity === null) {
+			$this->logger->warning('Webhook for unknown SignDocs session', [
+				'transactionId' => $transactionId,
+				'sessionId' => $sessionId,
+			]);
+			return;
+		}
+		$this->applyToEntity($entity, $status, $signedFileId);
+	}
+
+	/**
+	 * Normalise the incoming status to a canonical lowercase value, persist it,
+	 * and badge the file. Shared by the polling and webhook paths.
+	 */
+	private function applyToEntity(SigningSession $entity, string $status, ?string $signedFileId): void {
+		$canonical = match (strtolower($status)) {
+			'completed', 'signed', 'finalized', 'all_signed' => 'completed',
+			'cancelled', 'canceled', 'rejected' => 'cancelled',
+			'expired' => 'expired',
+			'failed' => 'failed',
+			default => strtolower($status),
+		};
+
+		$entity->setStatus($canonical);
 		$entity->setUpdatedAt($this->time->getTime());
 		if ($signedFileId !== null) {
 			$entity->setSignedFileId($signedFileId);
 		}
 		$this->mapper->update($entity);
 
-		$tag = match (strtolower($status)) {
-			'completed', 'signed', 'finalized' => Application::TAG_ASSINADO,
-			'cancelled', 'rejected', 'expired' => Application::TAG_CANCELADO,
+		$tag = match ($canonical) {
+			'completed' => Application::TAG_ASSINADO,
+			'cancelled', 'expired', 'failed' => Application::TAG_CANCELADO,
 			default => Application::TAG_PENDENTE,
 		};
 		$this->applyStatusTag($entity->getFileId(), $tag);
@@ -274,10 +328,11 @@ class SigningSessionService {
 		};
 	}
 
-	private function persist(string $sessionId, int $fileId, string $userId, array $metadata): SigningSession {
+	private function persist(string $sessionId, int $fileId, string $userId, array $metadata, ?string $transactionId = null): SigningSession {
 		$now = $this->time->getTime();
 		$entity = new SigningSession();
 		$entity->setSessionId($sessionId);
+		$entity->setTransactionId($transactionId);
 		$entity->setUserId($userId);
 		$entity->setFileId($fileId);
 		$entity->setStatus('pending');

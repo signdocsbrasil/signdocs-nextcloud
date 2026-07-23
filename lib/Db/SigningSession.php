@@ -16,6 +16,8 @@ use OCP\AppFramework\Db\Entity;
  *
  * @method string getSessionId()
  * @method void setSessionId(string $id)
+ * @method ?string getTransactionId()
+ * @method void setTransactionId(?string $id)
  * @method string getUserId()
  * @method void setUserId(string $id)
  * @method int getFileId()
@@ -33,6 +35,7 @@ use OCP\AppFramework\Db\Entity;
  */
 class SigningSession extends Entity {
 	protected string $sessionId = '';
+	protected ?string $transactionId = null;
 	protected string $userId = '';
 	protected int $fileId = 0;
 	protected string $status = 'pending';

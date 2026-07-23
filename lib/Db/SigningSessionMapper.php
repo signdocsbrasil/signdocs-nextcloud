@@ -31,6 +31,22 @@ class SigningSessionMapper extends QBMapper {
 	}
 
 	/**
+	 * Resolve a mirror row by the SignDocs transaction id. Single-signer flows
+	 * store it in the dedicated column; webhook events (TRANSACTION.*) are keyed
+	 * by transactionId, so this is the primary webhook correlation path.
+	 *
+	 * @throws DoesNotExistException
+	 */
+	public function findByTransactionId(string $transactionId): SigningSession {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('*')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('transaction_id', $qb->createNamedParameter($transactionId, IQueryBuilder::PARAM_STR)))
+			->setMaxResults(1);
+		return $this->findEntity($qb);
+	}
+
+	/**
 	 * @return SigningSession[]
 	 */
 	public function findByUser(string $userId, ?int $limit = 50, ?int $offset = null): array {

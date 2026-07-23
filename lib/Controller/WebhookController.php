@@ -57,16 +57,97 @@ class WebhookController extends Controller {
 			return new DataResponse(['error' => 'malformed_event'], Http::STATUS_BAD_REQUEST);
 		}
 
-		$sessionId = $event['sessionId'] ?? $event['envelopeId'] ?? $event['data']['sessionId'] ?? $event['data']['envelopeId'] ?? null;
-		$status = $event['status'] ?? $event['data']['status'] ?? null;
-		$signedFileId = $event['data']['signedDocumentId'] ?? null;
-
-		if (!is_string($sessionId) || !is_string($status)) {
+		if (!is_array($event)) {
 			return new DataResponse(['error' => 'malformed_event'], Http::STATUS_BAD_REQUEST);
 		}
 
-		$this->service->applyStatusUpdate($sessionId, $status, $signedFileId);
+		$parsed = self::extractEvent($event);
+		if ($parsed === null) {
+			// Non-terminal / informational event (…CREATED, STEP.*,
+			// …DEADLINE_APPROACHING, QUOTA.WARNING) — acknowledge, do nothing.
+			return new DataResponse(['ok' => true, 'ignored' => true]);
+		}
+		if ($parsed['transactionId'] === null && $parsed['sessionId'] === null) {
+			return new DataResponse(['error' => 'malformed_event'], Http::STATUS_BAD_REQUEST);
+		}
+
+		$this->service->applyStatusUpdateFromWebhook(
+			$parsed['transactionId'],
+			$parsed['sessionId'],
+			$parsed['status'],
+			$parsed['signedFileId'],
+		);
 
 		return new DataResponse(['ok' => true]);
+	}
+
+	/**
+	 * Resolve correlation ids + a terminal status from a decoded webhook event.
+	 *
+	 * Pure and side-effect-free so it can be unit-tested against real payload
+	 * shapes without php://input. Returns null for non-terminal/informational
+	 * events (…CREATED, STEP.*, …DEADLINE_APPROACHING, QUOTA.WARNING) that carry
+	 * no actionable status.
+	 *
+	 * Handles both single-signer (TRANSACTION.*, keyed by transactionId) and
+	 * multi-signer (ENVELOPE.*, keyed by data.envelopeId) shapes. ENVELOPE.ALL_SIGNED
+	 * carries no `data.status`, so the status is derived from the event type; its
+	 * top-level `transactionId` is the last signer's tx (not the envelope) and is
+	 * deliberately ignored in favour of data.envelopeId.
+	 *
+	 * @param array<string, mixed> $event
+	 * @return array{transactionId: ?string, sessionId: ?string, status: string, signedFileId: ?string}|null
+	 */
+	public static function extractEvent(array $event): ?array {
+		$eventType = is_string($event['eventType'] ?? null) ? $event['eventType'] : '';
+		$data = is_array($event['data'] ?? null) ? $event['data'] : [];
+
+		$transactionId = self::firstString([$event['transactionId'] ?? null, $data['transactionId'] ?? null]);
+		$sessionId = self::firstString([
+			$event['sessionId'] ?? null,
+			$event['envelopeId'] ?? null,
+			$data['sessionId'] ?? null,
+			$data['envelopeId'] ?? null,
+		]);
+		$status = self::firstString([$event['status'] ?? null, $data['status'] ?? null])
+			?? self::statusFromEventType($eventType);
+		if ($status === null) {
+			return null;
+		}
+
+		// For envelope events, correlate by the envelope id only — the top-level
+		// transactionId is the last signer's tx, which this mirror never stored.
+		if (str_starts_with($eventType, 'ENVELOPE.')) {
+			$transactionId = null;
+		}
+
+		return [
+			'transactionId' => $transactionId,
+			'sessionId' => $sessionId,
+			'status' => $status,
+			'signedFileId' => self::firstString([$data['signedDocumentId'] ?? null]),
+		];
+	}
+
+	private static function statusFromEventType(string $eventType): ?string {
+		return match ($eventType) {
+			'TRANSACTION.COMPLETED', 'ENVELOPE.ALL_SIGNED' => 'completed',
+			'TRANSACTION.CANCELLED', 'ENVELOPE.CANCELLED' => 'cancelled',
+			'TRANSACTION.EXPIRED', 'ENVELOPE.EXPIRED' => 'expired',
+			'TRANSACTION.FAILED' => 'failed',
+			default => null,
+		};
+	}
+
+	/**
+	 * @param array<int, mixed> $candidates
+	 */
+	private static function firstString(array $candidates): ?string {
+		foreach ($candidates as $c) {
+			if (is_string($c) && $c !== '') {
+				return $c;
+			}
+		}
+		return null;
 	}
 }
