@@ -22,6 +22,7 @@ use Psr\Log\LoggerInterface;
 use SignDocsBrasil\Api\Models\AddEnvelopeSessionRequest;
 use SignDocsBrasil\Api\Models\CreateEnvelopeRequest;
 use SignDocsBrasil\Api\Models\CreateSigningSessionRequest;
+use SignDocsBrasil\Api\Models\Owner;
 use SignDocsBrasil\Api\Models\Policy;
 use SignDocsBrasil\Api\Models\Signer;
 
@@ -73,6 +74,15 @@ class SigningSessionService {
 		}
 		$userId = $user->getUID();
 
+		// Identify the NC user as the request owner so SignDocs auto-dispatches
+		// the invite email to each signer (when their email differs from the
+		// owner's) and sends completion notifications. Requires the NC user to
+		// have an email set; without an owner the API sends nothing.
+		$ownerEmail = $user->getEMailAddress();
+		$owner = ($ownerEmail !== null && $ownerEmail !== '')
+			? new Owner(email: $ownerEmail, name: $user->getDisplayName())
+			: null;
+
 		$userFolder = $this->rootFolder->getUserFolder($userId);
 		$nodes = $userFolder->getById($fileId);
 		if (empty($nodes) || !$nodes[0] instanceof File) {
@@ -95,13 +105,13 @@ class SigningSessionService {
 		];
 
 		if (count($signers) <= 1) {
-			return $this->createSingle($client, $policy, $signers[0] ?? null, $documentInline, $metadata, $fileId, $userId);
+			return $this->createSingle($client, $policy, $signers[0] ?? null, $documentInline, $metadata, $fileId, $userId, $owner);
 		}
 
-		return $this->createEnvelope($client, $policy, $signers, $documentInline, $options['order'] ?? 'PARALLEL', $metadata, $fileId, $userId);
+		return $this->createEnvelope($client, $policy, $signers, $documentInline, $options['order'] ?? 'PARALLEL', $metadata, $fileId, $userId, $owner);
 	}
 
-	private function createSingle($client, Policy $policy, ?array $signerData, array $document, array $metadata, int $fileId, string $userId): SigningSession {
+	private function createSingle($client, Policy $policy, ?array $signerData, array $document, array $metadata, int $fileId, string $userId, ?Owner $owner = null): SigningSession {
 		if ($signerData === null) {
 			throw new \InvalidArgumentException('At least one signer is required.');
 		}
@@ -112,6 +122,7 @@ class SigningSessionService {
 			document: $document,
 			metadata: $metadata,
 			locale: 'pt-BR',
+			owner: $owner,
 		);
 		$apiSession = $client->signingSessions->create($request);
 
@@ -128,13 +139,14 @@ class SigningSessionService {
 		);
 	}
 
-	private function createEnvelope($client, Policy $policy, array $signers, array $document, string $order, array $metadata, int $fileId, string $userId): SigningSession {
+	private function createEnvelope($client, Policy $policy, array $signers, array $document, string $order, array $metadata, int $fileId, string $userId, ?Owner $owner = null): SigningSession {
 		$envelope = $client->envelopes->create(new CreateEnvelopeRequest(
 			signingMode: strtoupper($order) === 'SEQUENTIAL' ? 'SEQUENTIAL' : 'PARALLEL',
 			totalSigners: count($signers),
 			document: $document,
 			metadata: $metadata,
 			locale: 'pt-BR',
+			owner: $owner,
 		));
 
 		$shareLinks = [];
