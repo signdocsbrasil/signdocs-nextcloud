@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace OCA\SignDocsBrasil\BackgroundJob;
 
+use OCA\SignDocsBrasil\Db\SigningSession;
 use OCA\SignDocsBrasil\Db\SigningSessionMapper;
 use OCA\SignDocsBrasil\Service\SignDocsClientFactory;
 use OCA\SignDocsBrasil\Service\SigningSessionService;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
 use Psr\Log\LoggerInterface;
+use SignDocsBrasil\Api\SignDocsBrasilClient;
 
 /**
  * Reconciles pending signing sessions on a timer.
@@ -45,12 +47,11 @@ class PollPendingSessions extends TimedJob {
 		foreach ($pending as $entity) {
 			try {
 				$client = $this->clientFactory->forUser($entity->getUserId());
-				// Cheaper than ->get(); status is enough to drive tag/notification updates.
-				$status = $client->signingSessions->getStatus($entity->getSessionId());
-				if ($status->status !== $entity->getStatus()) {
+				$status = $this->fetchStatus($client, $entity);
+				if ($status !== $entity->getStatus()) {
 					$this->sessionService->applyStatusUpdate(
 						$entity->getSessionId(),
-						$status->status,
+						$status,
 					);
 				}
 			} catch (\Throwable $e) {
@@ -60,5 +61,21 @@ class PollPendingSessions extends TimedJob {
 				]);
 			}
 		}
+	}
+
+	/**
+	 * Current upstream status for a mirror row. Single-signer flows expose it via
+	 * signingSessions->getStatus; envelopes (session_id == envelopeId) via
+	 * envelopes->get, because getStatus rejects an envelope id. This is why the
+	 * poller is the reconciliation fallback for firewalled instances on both the
+	 * single-signer and the multi-signer path.
+	 */
+	private function fetchStatus(SignDocsBrasilClient $client, SigningSession $entity): string {
+		$meta = json_decode((string)$entity->getMetadata(), true);
+		$kind = is_array($meta) ? ($meta['kind'] ?? 'session') : 'session';
+		if ($kind === 'envelope') {
+			return $client->envelopes->get($entity->getSessionId())->status;
+		}
+		return $client->signingSessions->getStatus($entity->getSessionId())->status;
 	}
 }

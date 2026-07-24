@@ -250,4 +250,22 @@ class SigningSessionServiceHelpersTest extends TestCase {
 		self::assertSame('documento-assinado.pdf', SigningSessionService::signedFileName(null));
 		self::assertSame('documento-assinado.pdf', SigningSessionService::signedFileName(''));
 	}
+
+	public function testCanonicalStatusMapsTerminalStates(): void {
+		self::assertSame('completed', SigningSessionService::canonicalStatus('COMPLETED'));
+		self::assertSame('completed', SigningSessionService::canonicalStatus('ALL_SIGNED'));
+		self::assertSame('cancelled', SigningSessionService::canonicalStatus('CANCELLED'));
+		self::assertSame('expired', SigningSessionService::canonicalStatus('EXPIRED'));
+		self::assertSame('failed', SigningSessionService::canonicalStatus('FAILED'));
+	}
+
+	public function testCanonicalStatusMapsNonTerminalToPendingSoRowStaysPolled(): void {
+		// Envelope CREATED/ACTIVE (and any unknown/in-progress) must normalise to
+		// 'pending' — otherwise the row drops out of findPendingOlderThan and is
+		// never reconciled to completion.
+		self::assertSame('pending', SigningSessionService::canonicalStatus('ACTIVE'));
+		self::assertSame('pending', SigningSessionService::canonicalStatus('CREATED'));
+		self::assertSame('pending', SigningSessionService::canonicalStatus('PENDING'));
+		self::assertSame('pending', SigningSessionService::canonicalStatus('IN_PROGRESS'));
+	}
 }

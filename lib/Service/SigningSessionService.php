@@ -221,13 +221,7 @@ class SigningSessionService {
 	 * and badge the file. Shared by the polling and webhook paths.
 	 */
 	private function applyToEntity(SigningSession $entity, string $status, ?string $signedFileId): void {
-		$canonical = match (strtolower($status)) {
-			'completed', 'signed', 'finalized', 'all_signed' => 'completed',
-			'cancelled', 'canceled', 'rejected' => 'cancelled',
-			'expired' => 'expired',
-			'failed' => 'failed',
-			default => strtolower($status),
-		};
+		$canonical = self::canonicalStatus($status);
 
 		$entity->setStatus($canonical);
 		$entity->setUpdatedAt($this->time->getTime());
@@ -353,6 +347,22 @@ class SigningSessionService {
 		$nodes = $userFolder->getById($fileId);
 		$node = $nodes[0] ?? null;
 		return $node !== null ? $node->getName() : null;
+	}
+
+	/**
+	 * Normalise any upstream status (single-signer session statuses, envelope
+	 * statuses like CREATED/ACTIVE/COMPLETED/CANCELLED/EXPIRED, webhook-derived
+	 * statuses) to the mirror's canonical enum. Every non-terminal value maps to
+	 * 'pending' so the row stays in the polling set until it resolves.
+	 */
+	public static function canonicalStatus(string $status): string {
+		return match (strtolower($status)) {
+			'completed', 'signed', 'finalized', 'all_signed' => 'completed',
+			'cancelled', 'canceled', 'rejected' => 'cancelled',
+			'expired' => 'expired',
+			'failed' => 'failed',
+			default => 'pending',
+		};
 	}
 
 	/**
