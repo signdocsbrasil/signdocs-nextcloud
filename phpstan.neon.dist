@@ -10,6 +10,6 @@ parameters:
         - tests/bootstrap.php
         - tests/stubs/oc_hooks.php
     scanDirectories:
-        - vendor/nextcloud/ocp/OCP
-        - vendor/nextcloud/ocp/NCU
+        - composer/nextcloud/ocp/OCP
+        - composer/nextcloud/ocp/NCU
     ignoreErrors: []

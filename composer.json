@@ -40,6 +40,7 @@
         "test:integration": "phpunit --testsuite Integration"
     },
     "config": {
+        "vendor-dir": "composer",
         "sort-packages": true,
         "audit": {
             "abandoned": "report",

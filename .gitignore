@@ -1,5 +1,5 @@
 # PHP
-/vendor/
+/composer/
 /.phpunit.cache/
 /.phpcs.cache
 /.phpstan.cache

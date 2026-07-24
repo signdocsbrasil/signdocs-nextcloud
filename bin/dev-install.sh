@@ -37,7 +37,7 @@ sudo rm -f "$NC_PATH/apps/$APP_ID"
 sudo ln -s "$APP_DIR" "$NC_PATH/apps/$APP_ID"
 
 echo "→ Ensuring composer deps are present"
-if [ ! -d vendor ]; then
+if [ ! -d composer ]; then
     composer install --no-interaction --quiet
 fi
 

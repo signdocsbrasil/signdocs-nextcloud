@@ -6,7 +6,7 @@
 # The App Store requires:
 #   - exactly one top-level directory whose name matches the app id
 #   - that directory contains appinfo/info.xml at its top
-#   - vendor/ is included (no Composer runs on end-user NC servers)
+#   - composer/ is included (Nextcloud loads <app>/composer/autoload.php) (no Composer runs on end-user NC servers)
 #   - dev artefacts (tests/, .github/, CLAUDE.md, *.cache, etc.) excluded
 #
 # Usage:
