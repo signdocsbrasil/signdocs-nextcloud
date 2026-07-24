@@ -100,11 +100,11 @@ class SettingsController extends Controller {
 				$client = $this->clientFactory->forCredentials($creds['clientId'], $creds['clientSecret']);
 			}
 
-			// Call ANY authenticated endpoint with a tight bound. signingSessions
-			// list is read-only, has no side effects, and the limit:1 keeps the
-			// payload trivially small even for tenants with many sessions.
+			// Authenticated, side-effect-free read to confirm the credentials.
+			// The list endpoint requires a status filter (ACTIVE/COMPLETED/…),
+			// so pass one; ACTIVE + limit:1 keeps the payload trivially small.
 			$client->signingSessions->list(
-				new \SignDocsBrasil\Api\Models\SigningSessionListParams(limit: 1)
+				new \SignDocsBrasil\Api\Models\SigningSessionListParams(status: 'ACTIVE', limit: 1)
 			);
 
 			return new DataResponse([
