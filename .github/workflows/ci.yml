@@ -66,6 +66,37 @@ jobs:
       - name: PHPUnit (unit)
         run: composer test
 
+  js:
+    name: Front-end unit tests (jsdom)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # node --test takes glob arguments from Node 22 onwards.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Committed bundle matches src/
+        run: |
+          # js/*.js is a build artefact that ships to users, while the tests
+          # run against src/. If the two drift, the suite passes while the
+          # app serves stale code — so rebuild and require a clean tree.
+          npm run build
+          if ! git diff --quiet -- js/; then
+            echo "js/ is stale. Run 'npm run build' and commit the result:" >&2
+            git diff --stat -- js/ >&2
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: npm test
+
   build:
     name: Build app archive
     runs-on: ubuntu-24.04

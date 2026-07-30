@@ -20,3 +20,10 @@ spl_autoload_register(static function (string $class) use ($ocpRoot): void {
 		}
 	}
 });
+
+// Symbols the OCP interfaces extend but the stub package doesn't ship — e.g.
+// OC\Hooks\Emitter, which IRootFolder extends. Without it, mocking any such
+// interface dies with "Interface OC\Hooks\Emitter not found". Must come after
+// the OCP autoloader above, since the stubs themselves extend OCP classes.
+// PHPStan loads the same file via bootstrapFiles.
+require_once __DIR__ . '/stubs/oc_hooks.php';

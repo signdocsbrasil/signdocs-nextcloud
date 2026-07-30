@@ -6,6 +6,8 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "build": "npm run build:action && npm run build:landing",
+    "build:test": "esbuild src/files-action.js --bundle --target=es2020 --format=cjs --platform=browser --outfile=build/js-test/files-action.cjs",
+    "test": "npm run build:test && node --test 'tests/js/**/*.test.js'",
     "build:action": "esbuild src/files-action.js --bundle --minify --target=es2020 --format=iife --platform=browser --outfile=js/signdocs-files-action.js",
     "build:landing": "esbuild src/landing-page.js --bundle --minify --target=es2020 --format=iife --platform=browser --outfile=js/signdocs-landing-page.js",
     "watch": "esbuild src/files-action.js src/landing-page.js --bundle --target=es2020 --format=iife --platform=browser --outdir=js --watch"
@@ -19,6 +21,7 @@
   "devDependencies": {
     "buffer": "^6.0.3",
     "esbuild": "^0.24.0",
+    "jsdom": "^29.1.1",
     "string_decoder": "^1.3.0"
   }
 }

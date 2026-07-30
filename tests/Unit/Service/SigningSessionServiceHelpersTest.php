@@ -27,6 +27,8 @@ class SigningSessionServiceHelpersTest extends TestCase {
 	private \ReflectionMethod $validateOptions;
 	/** @var \ReflectionMethod */
 	private \ReflectionMethod $validateSigners;
+	/** @var \ReflectionMethod */
+	private \ReflectionMethod $validateDocumentFormat;
 	/** @var SigningSessionService */
 	private SigningSessionService $stub;
 
@@ -45,6 +47,9 @@ class SigningSessionServiceHelpersTest extends TestCase {
 
 		$this->validateSigners = $ref->getMethod('validateSigners');
 		$this->validateSigners->setAccessible(true);
+
+		$this->validateDocumentFormat = $ref->getMethod('validateDocumentFormat');
+		$this->validateDocumentFormat->setAccessible(true);
 
 		// Construct without calling __construct (skips dependency wiring).
 		$this->stub = $ref->newInstanceWithoutConstructor();
@@ -181,9 +186,39 @@ class SigningSessionServiceHelpersTest extends TestCase {
 	}
 
 	public function testValidateOptionsAllowsNonIcpModesWithParallel(): void {
-		// CLICK_ONLY and CLICK_PLUS_OTP are unconstrained by this rule.
+		// CLICK_ONLY and CLICK_PLUS_OTP are always parallel — the happy path.
 		$this->validateOptions->invoke($this->stub, 'electronic', 'PARALLEL', 5);
 		$this->validateOptions->invoke($this->stub, 'click_plus_otp', 'PARALLEL', 5);
+		self::assertTrue(true);
+	}
+
+	public function testValidateOptionsRejectsSequentialWithoutIcp(): void {
+		// The dialog only offers sequential order under digital_certificate;
+		// a click/OTP envelope has no signature chain to order. A stale client
+		// still asking for it must be rejected, not silently honoured.
+		$this->expectException(\InvalidArgumentException::class);
+		$this->expectExceptionMessage('Sequential order requires digital certificate signing.');
+		$this->validateOptions->invoke($this->stub, 'electronic', 'SEQUENTIAL', 3);
+	}
+
+	public function testValidateOptionsRejectsSequentialWithOtpMode(): void {
+		$this->expectException(\InvalidArgumentException::class);
+		$this->expectExceptionMessage('Sequential order requires digital certificate signing.');
+		$this->validateOptions->invoke($this->stub, 'click_plus_otp', 'SEQUENTIAL', 2);
+	}
+
+	public function testValidateOptionsAllowsSequentialWithSingleNonIcpSigner(): void {
+		// 1 signer never becomes an envelope, so the order field is inert —
+		// no reason to fail the request over it.
+		$this->validateOptions->invoke($this->stub, 'electronic', 'SEQUENTIAL', 1);
+		self::assertTrue(true);
+	}
+
+	public function testValidateOptionsAllowsSequentialForLegacyIcpAliases(): void {
+		// icp_a1 / icp_a3 still map to the certificate profile, so they keep
+		// access to sequential order.
+		$this->validateOptions->invoke($this->stub, 'icp_a1', 'SEQUENTIAL', 3);
+		$this->validateOptions->invoke($this->stub, 'icp_a3', 'SEQUENTIAL', 3);
 		self::assertTrue(true);
 	}
 
@@ -249,6 +284,60 @@ class SigningSessionServiceHelpersTest extends TestCase {
 	public function testSignedFileNameFallsBackWhenOriginalMissing(): void {
 		self::assertSame('documento-assinado.pdf', SigningSessionService::signedFileName(null));
 		self::assertSame('documento-assinado.pdf', SigningSessionService::signedFileName(''));
+	}
+
+	public function testSignedFileNameKeepsNativeFormatForTheCadesPair(): void {
+		// A non-PDF signed with an ICP-Brasil certificate is saved back as the
+		// original format plus a detached .p7s — the two share a basename so the
+		// pair is obvious in the Files list.
+		self::assertSame('Contrato-assinado.docx', SigningSessionService::signedFileName('Contrato.docx', 'docx'));
+		self::assertSame('Contrato-assinado.p7s', SigningSessionService::signedFileName('Contrato.docx', 'p7s'));
+		self::assertSame('Contrato-assinado.odt', SigningSessionService::signedFileName('Contrato.odt', '.odt'));
+	}
+
+	public function testFileExtensionIsLowercasedAndDotless(): void {
+		self::assertSame('docx', SigningSessionService::fileExtension('Contrato.DOCX'));
+		self::assertSame('pdf', SigningSessionService::fileExtension('a/b/Contrato.pdf'));
+		self::assertSame('', SigningSessionService::fileExtension('Contrato'));
+		self::assertSame('', SigningSessionService::fileExtension(null));
+		self::assertSame('', SigningSessionService::fileExtension(''));
+	}
+
+	public function testValidateDocumentFormatRejectsNonPdfWithoutCertificate(): void {
+		// Interim gate: a click/OTP signature on a non-PDF produces no artifact
+		// the app could ever save back, so the request is refused up front.
+		$this->expectException(\InvalidArgumentException::class);
+		$this->expectExceptionMessage('Non-PDF documents require digital certificate signing.');
+		$this->validateDocumentFormat->invoke($this->stub, "PK\x03\x04docx-bytes", 'electronic');
+	}
+
+	public function testValidateDocumentFormatAllowsNonPdfWithCertificate(): void {
+		$this->validateDocumentFormat->invoke($this->stub, "PK\x03\x04docx", 'digital_certificate');
+		$this->validateDocumentFormat->invoke($this->stub, "PK\x03\x04docx", 'icp_a1');
+		self::assertTrue(true);
+	}
+
+	public function testValidateDocumentFormatAllowsAnyModeForAPdf(): void {
+		$this->validateDocumentFormat->invoke($this->stub, '%PDF-1.7 ...', 'electronic');
+		$this->validateDocumentFormat->invoke($this->stub, '%PDF-1.7 ...', 'click_plus_otp');
+		self::assertTrue(true);
+	}
+
+	public function testValidateDocumentFormatSniffsContentNotTheFilename(): void {
+		// The API decides the format from the bytes, so a mislabelled PDF must
+		// not be gated — otherwise we'd reject a request the API would accept.
+		$this->validateDocumentFormat->invoke($this->stub, '%PDF-1.4 mislabelled as .docx', 'electronic');
+		self::assertTrue(true);
+	}
+
+	public function testIsDigitalCertificateModeCoversLegacyAliases(): void {
+		// Only these modes produce a detached CAdES signature for a non-PDF, so
+		// this gate decides whether the save-back job has anything to wait for.
+		self::assertTrue(SigningSessionService::isDigitalCertificateMode('digital_certificate'));
+		self::assertTrue(SigningSessionService::isDigitalCertificateMode('icp_a1'));
+		self::assertTrue(SigningSessionService::isDigitalCertificateMode('icp_a3'));
+		self::assertFalse(SigningSessionService::isDigitalCertificateMode('electronic'));
+		self::assertFalse(SigningSessionService::isDigitalCertificateMode('click_plus_otp'));
 	}
 
 	public function testCanonicalStatusMapsTerminalStates(): void {
