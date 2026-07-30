@@ -7,6 +7,7 @@ namespace OCA\SignDocsBrasil\Service;
 use OCA\SignDocsBrasil\AppInfo\Application;
 use OCP\IUserSession;
 use SignDocsBrasil\Api\Config;
+use SignDocsBrasil\Api\Resources\DocumentsResource;
 use SignDocsBrasil\Api\SignDocsBrasilClient;
 
 /**
@@ -30,13 +31,13 @@ class SignDocsClientFactory {
 	public function forCurrentUser(): SignDocsBrasilClient {
 		$mode = $this->credentials->getTenantMode();
 		if ($mode === Application::SETTING_TENANT_MODE_SHARED) {
-			return $this->buildSharedClient();
+			return new SignDocsBrasilClient($this->sharedConfig());
 		}
 		$user = $this->userSession->getUser();
 		if ($user === null) {
 			throw new \RuntimeException('No active user session.');
 		}
-		return $this->buildOAuthClient($user->getUID());
+		return new SignDocsBrasilClient($this->oauthConfig($user->getUID()));
 	}
 
 	/**
@@ -45,11 +46,24 @@ class SignDocsClientFactory {
 	 * shared (the userId is irrelevant in that case).
 	 */
 	public function forUser(string $userId): SignDocsBrasilClient {
+		return new SignDocsBrasilClient($this->configForUser($userId));
+	}
+
+	/**
+	 * The documents resource for a specific user. A separate accessor because
+	 * DocumentsResource is final and so can't be mocked — tests substitute this
+	 * method with a real resource wrapping a mocked HttpClient.
+	 */
+	public function documentsFor(string $userId): DocumentsResource {
+		return $this->forUser($userId)->documents;
+	}
+
+	private function configForUser(string $userId): Config {
 		$mode = $this->credentials->getTenantMode();
 		if ($mode === Application::SETTING_TENANT_MODE_SHARED) {
-			return $this->buildSharedClient();
+			return $this->sharedConfig();
 		}
-		return $this->buildOAuthClient($userId);
+		return $this->oauthConfig($userId);
 	}
 
 	/**
@@ -65,19 +79,19 @@ class SignDocsClientFactory {
 		));
 	}
 
-	private function buildSharedClient(): SignDocsBrasilClient {
+	private function sharedConfig(): Config {
 		$creds = $this->credentials->getTenantApiKey();
 		if ($creds === null) {
 			throw new \RuntimeException('Shared tenant mode is enabled but no tenant API key is configured.');
 		}
-		return new SignDocsBrasilClient(new Config(
+		return new Config(
 			clientId: $creds['clientId'],
 			clientSecret: $creds['clientSecret'],
 			baseUrl: $this->credentials->getApiBaseUrl(),
-		));
+		);
 	}
 
-	private function buildOAuthClient(string $userId): SignDocsBrasilClient {
+	private function oauthConfig(string $userId): Config {
 		$token = $this->credentials->getUserOAuthToken($userId);
 		if ($token === null) {
 			throw new NotConnectedException('User has not linked a SignDocs Brasil account yet.');
@@ -85,12 +99,12 @@ class SignDocsClientFactory {
 		// The PHP SDK accepts a clientId+clientSecret pair OR a private_key_jwt; for
 		// per-user OAuth we store the user's clientId/clientSecret pair issued by
 		// SignDocs after device-flow authorization.
-		return new SignDocsBrasilClient(new Config(
+		return new Config(
 			clientId: $token['clientId'],
 			clientSecret: $token['clientSecret'] ?? null,
 			privateKey: $token['privateKey'] ?? null,
 			kid: $token['kid'] ?? null,
 			baseUrl: $this->credentials->getApiBaseUrl(),
-		));
+		);
 	}
 }

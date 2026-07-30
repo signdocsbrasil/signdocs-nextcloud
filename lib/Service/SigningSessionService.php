@@ -41,6 +41,20 @@ class SigningSessionService {
 	/** Leading bytes of a PDF. */
 	private const MAGIC_PDF = '%PDF-';
 
+	/**
+	 * Leading byte of a DER-encoded PKCS#7/CMS structure (ASN.1 SEQUENCE). Weak
+	 * on its own, but enough to tell a real .p7s from an S3 error page.
+	 */
+	private const MAGIC_CMS = "\x30";
+
+	/**
+	 * How many fetch attempts a non-PDF session gets before we accept that no
+	 * artifact exists. Only applies to rows whose policy wasn't recorded (created
+	 * before `mode` was persisted) — everything else is decided from the policy.
+	 * At the job's 5-minute cadence this is roughly an hour.
+	 */
+	private const MAX_ARTIFACT_ATTEMPTS = 12;
+
 	/** The mutually exclusive status badges a file can carry. */
 	private const STATUS_TAGS = [
 		Application::TAG_PENDENTE,
@@ -116,14 +130,16 @@ class SigningSessionService {
 			'nc_user_id' => $userId,
 		];
 
+		$mode = (string)($options['mode'] ?? 'electronic');
+
 		if (count($signers) <= 1) {
-			return $this->createSingle($client, $policy, $signers[0] ?? null, $documentInline, $metadata, $fileId, $userId, $owner);
+			return $this->createSingle($client, $policy, $signers[0] ?? null, $documentInline, $metadata, $fileId, $userId, $owner, $mode);
 		}
 
-		return $this->createEnvelope($client, $policy, $signers, $documentInline, $options['order'] ?? 'PARALLEL', $metadata, $fileId, $userId, $owner);
+		return $this->createEnvelope($client, $policy, $signers, $documentInline, $options['order'] ?? 'PARALLEL', $metadata, $fileId, $userId, $owner, $mode);
 	}
 
-	private function createSingle($client, Policy $policy, ?array $signerData, array $document, array $metadata, int $fileId, string $userId, ?Owner $owner = null): SigningSession {
+	private function createSingle($client, Policy $policy, ?array $signerData, array $document, array $metadata, int $fileId, string $userId, ?Owner $owner = null, string $mode = 'electronic'): SigningSession {
 		if ($signerData === null) {
 			throw new \InvalidArgumentException('At least one signer is required.');
 		}
@@ -144,6 +160,9 @@ class SigningSessionService {
 			userId: $userId,
 			metadata: [
 				'kind' => 'session',
+				// Recorded so saveSignedDocument knows, without another API call,
+				// whether a non-PDF can ever yield a signed artifact.
+				'mode' => $mode,
 				'transactionId' => $apiSession->transactionId,
 				'signers' => [['email' => $signerData['email'] ?? null, 'name' => $signerData['name'] ?? null]],
 			],
@@ -151,7 +170,7 @@ class SigningSessionService {
 		);
 	}
 
-	private function createEnvelope($client, Policy $policy, array $signers, array $document, string $order, array $metadata, int $fileId, string $userId, ?Owner $owner = null): SigningSession {
+	private function createEnvelope($client, Policy $policy, array $signers, array $document, string $order, array $metadata, int $fileId, string $userId, ?Owner $owner = null, string $mode = 'electronic'): SigningSession {
 		$envelope = $client->envelopes->create(new CreateEnvelopeRequest(
 			signingMode: strtoupper($order) === 'SEQUENTIAL' ? 'SEQUENTIAL' : 'PARALLEL',
 			totalSigners: count($signers),
@@ -184,6 +203,7 @@ class SigningSessionService {
 			userId: $userId,
 			metadata: [
 				'kind' => 'envelope',
+				'mode' => $mode,
 				'shareLinks' => $shareLinks,
 			],
 		);
@@ -274,60 +294,253 @@ class SigningSessionService {
 		}
 
 		$userId = $entity->getUserId();
-		$client = $this->clientFactory->forUser($userId);
-
 		$meta = json_decode((string)$entity->getMetadata(), true);
-		$kind = is_array($meta) ? ($meta['kind'] ?? 'session') : 'session';
-
-		// Resolve the presigned download URL for the signed artifact. Envelopes
-		// (session_id == envelopeId) use the combined stamp; single-signer flows
-		// use the per-transaction download.
-		if ($kind === 'envelope') {
-			$url = $client->envelopes->combinedStamp($entity->getSessionId())->downloadUrl;
-		} else {
-			$transactionId = $entity->getTransactionId();
-			if ($transactionId === null || $transactionId === '') {
-				$this->logger->warning('No transactionId to fetch signed document', ['sessionId' => $entity->getSessionId()]);
-				return;
-			}
-			$url = $client->documents->download($transactionId)->signedUrl;
-		}
-
-		if (!is_string($url) || $url === '') {
-			// Artifact not ready yet — the job retries on its next run.
-			$this->logger->info('Signed document not available yet', ['sessionId' => $entity->getSessionId()]);
-			return;
-		}
-
-		$content = $this->fetchSignedPdf($url);
-		if ($content === null) {
-			return;
-		}
+		$meta = is_array($meta) ? $meta : [];
+		$kind = $meta['kind'] ?? 'session';
 
 		$userFolder = $this->rootFolder->getUserFolder($userId);
-		$folder = $this->resolveSignedFolder($userFolder, $this->credentials->getDefaultSignedFolder($userId));
-		$name = $folder->getNonExistingName(self::signedFileName($this->originalFileName($userFolder, $entity->getFileId())));
-		$node = $folder->newFile($name, $content);
+		$originalName = $this->originalFileName($userFolder, $entity->getFileId());
 
-		$entity->setSignedFileId((string)$node->getId());
-		$entity->setUpdatedAt($this->time->getTime());
-		$this->mapper->update($entity);
+		// Envelopes (session_id == envelopeId) deliver a combined stamp, which is
+		// always a PDF summary regardless of the source document's format.
+		if ($kind === 'envelope') {
+			$client = $this->clientFactory->forUser($userId);
+			$url = $client->envelopes->combinedStamp($entity->getSessionId())->downloadUrl;
+			if (!is_string($url) || $url === '') {
+				$this->logger->info('Combined stamp not available yet', ['sessionId' => $entity->getSessionId()]);
+				return;
+			}
+			$content = $this->fetchArtifact($url, self::MAGIC_PDF);
+			if ($content === null) {
+				return;
+			}
+			$this->storeArtifacts($entity, $userFolder, $userId, [
+				self::signedFileName($originalName) => $content,
+			]);
+			return;
+		}
 
-		$this->logger->info('Saved signed document to Nextcloud', [
-			'sessionId' => $entity->getSessionId(),
-			'path' => $node->getPath(),
-		]);
+		// Established on an earlier run that this row can never produce an
+		// artifact — don't spend an API call on it every 5 minutes.
+		if (!empty($meta['noSignedArtifact'])) {
+			return;
+		}
+
+		$transactionId = $entity->getTransactionId();
+		if ($transactionId === null || $transactionId === '') {
+			$this->logger->warning('No transactionId to fetch signed document', ['sessionId' => $entity->getSessionId()]);
+			return;
+		}
+
+		$urls = $this->downloadUrls($userId, $transactionId);
+		$signedUrl = isset($urls['signedUrl']) ? (string)$urls['signedUrl'] : '';
+		$signatureUrl = isset($urls['signatureUrl']) ? (string)$urls['signatureUrl'] : '';
+
+		// PDF flow: one signed/stamped PDF.
+		if ($signedUrl !== '') {
+			$content = $this->fetchArtifact($signedUrl, self::MAGIC_PDF);
+			if ($content === null) {
+				return;
+			}
+			$this->storeArtifacts($entity, $userFolder, $userId, [
+				self::signedFileName($originalName) => $content,
+			]);
+			return;
+		}
+
+		$mode = isset($meta['mode']) ? (string)$meta['mode'] : null;
+		$format = isset($urls['documentFormat']) ? (string)$urls['documentFormat'] : '';
+
+		// A non-PDF upload (documentFormat=generic) only ever gets an artifact on
+		// the certificate path, where the signing step writes a detached .p7s.
+		// Under a click/OTP policy nothing is produced at all, so give up now.
+		//
+		// This has to be decided from the policy, NOT from the presence of
+		// signatureUrl: the API presigns that key without checking whether the
+		// object exists, so a click-signed .docx still comes back with a
+		// signatureUrl that 404s on GET.
+		if ($format === 'generic' && $mode !== null && !self::isDigitalCertificateMode($mode)) {
+			$this->markNoSignedArtifact($entity, $meta, 'signed without a digital certificate', $mode);
+			return;
+		}
+
+		// CAdES flow: the signature is detached, so the document alone proves
+		// nothing and the .p7s alone can't be read. Save the pair — the exact
+		// bytes that were signed (from the API, not the local file, which may
+		// have been edited since) plus the signature beside it. Same two-file
+		// result the Google Drive add-on produces for native-format signing.
+		if ($signatureUrl !== '' && $this->storeDetachedPair($entity, $userFolder, $userId, $originalName, $urls)) {
+			return;
+		}
+
+		// Nothing landed. Rows created before the policy was recorded can't be
+		// classified, so bound the retries instead of warning forever — a real
+		// .p7s exists the moment the transaction completes, so if it hasn't
+		// appeared within the cap it never will.
+		if ($format === 'generic' && $mode === null) {
+			$attempts = (int)($meta['artifactAttempts'] ?? 0) + 1;
+			if ($attempts >= self::MAX_ARTIFACT_ATTEMPTS) {
+				$this->markNoSignedArtifact($entity, $meta, 'no artifact after ' . $attempts . ' attempts', $mode);
+				return;
+			}
+			$meta['artifactAttempts'] = $attempts;
+			$entity->setMetadata(json_encode($meta, JSON_THROW_ON_ERROR));
+			$entity->setUpdatedAt($this->time->getTime());
+			$this->mapper->update($entity);
+		}
+
+		// Artifact not ready yet — the job retries on its next run.
+		$this->logger->info('Signed artifact not available yet', ['sessionId' => $entity->getSessionId()]);
 	}
 
 	/**
-	 * Fetch the signed PDF from a SignDocs-issued presigned URL. Returns null
-	 * (and logs) on any failure so the job can retry later. Validates HTTPS and
-	 * the PDF magic bytes; the URL is trusted (issued by the SignDocs API), so
-	 * no Content-Type allowlist is applied.
+	 * Flag a completed session as having no signed artifact so the fetch job
+	 * stops spending an API call on it every run. Deliberately does not touch
+	 * signed_file_id: there is no file, and the status badge stays "assinado"
+	 * because the signature itself is valid and evidenced — only the signed
+	 * *document* is missing.
+	 *
+	 * @param array<string, mixed> $meta
 	 */
-	private function fetchSignedPdf(string $url): ?string {
+	private function markNoSignedArtifact(SigningSession $entity, array $meta, string $reason, ?string $mode): void {
+		$this->logger->info('No signed artifact to save back for this session', [
+			'sessionId' => $entity->getSessionId(),
+			'reason' => $reason,
+			'mode' => $mode,
+		]);
+		$meta['noSignedArtifact'] = true;
+		$entity->setMetadata(json_encode($meta, JSON_THROW_ON_ERROR));
+		$entity->setUpdatedAt($this->time->getTime());
+		$this->mapper->update($entity);
+	}
+
+	/**
+	 * Save the signed document together with its detached .p7s signature.
+	 *
+	 * @param array<string, mixed> $urls download URLs as returned by the API
+	 * @return bool whether anything was saved; false means try again later
+	 */
+	private function storeDetachedPair(
+		SigningSession $entity,
+		Folder $userFolder,
+		string $userId,
+		?string $originalName,
+		array $urls,
+	): bool {
+		$signature = $this->fetchArtifact((string)$urls['signatureUrl'], self::MAGIC_CMS);
+		if ($signature === null) {
+			return false;
+		}
+
+		$files = [];
+		$originalUrl = isset($urls['originalUrl']) ? (string)$urls['originalUrl'] : '';
+		if ($originalUrl !== '') {
+			$document = $this->fetchArtifact($originalUrl, null);
+			if ($document !== null) {
+				$files[self::signedFileName($originalName, self::fileExtension($originalName) ?: 'bin')] = $document;
+			}
+		}
+		if (empty($files)) {
+			// No original to pair with — still worth keeping the signature, which
+			// verifies against the document already in the user's storage.
+			$this->logger->warning('Saving detached signature without its document copy', [
+				'sessionId' => $entity->getSessionId(),
+			]);
+		}
+		$files[self::signedFileName($originalName, 'p7s')] = $signature;
+
+		$this->storeArtifacts($entity, $userFolder, $userId, $files);
+		return true;
+	}
+
+	/**
+	 * Write artifacts into the user's signed folder and point the mirror row at
+	 * the first one (the document a user actually opens). Any extras — today just
+	 * the .p7s — are recorded in metadata under `extraFileIds`.
+	 *
+	 * Names are collision-resolved off the *first* entry so a pair keeps a
+	 * matching basename: `contrato-assinado (2).docx` + `contrato-assinado (2).p7s`.
+	 *
+	 * @param array<string, string> $files filename => content, primary first
+	 */
+	private function storeArtifacts(
+		SigningSession $entity,
+		Folder $userFolder,
+		string $userId,
+		array $files,
+	): void {
+		if (empty($files)) {
+			return;
+		}
+		$folder = $this->resolveSignedFolder($userFolder, $this->credentials->getDefaultSignedFolder($userId));
+
+		$names = array_keys($files);
+		$primaryName = $folder->getNonExistingName($names[0]);
+		$sharedBase = preg_replace('/\.[A-Za-z0-9]{1,5}$/', '', $primaryName) ?? $primaryName;
+
+		$primary = null;
+		$extraIds = [];
+		foreach ($names as $i => $name) {
+			$target = $i === 0
+				? $primaryName
+				: $folder->getNonExistingName($sharedBase . '.' . self::fileExtension($name));
+			$node = $folder->newFile($target, $files[$name]);
+			if ($i === 0) {
+				$primary = $node;
+			} else {
+				$extraIds[] = (string)$node->getId();
+			}
+			$this->logger->info('Saved signed artifact to Nextcloud', [
+				'sessionId' => $entity->getSessionId(),
+				'path' => $node->getPath(),
+			]);
+		}
+
+		if ($primary === null) {
+			return;
+		}
+		$entity->setSignedFileId((string)$primary->getId());
+		if (!empty($extraIds)) {
+			$meta = json_decode((string)$entity->getMetadata(), true);
+			$meta = is_array($meta) ? $meta : [];
+			$meta['extraFileIds'] = $extraIds;
+			$entity->setMetadata(json_encode($meta, JSON_THROW_ON_ERROR));
+		}
+		$entity->setUpdatedAt($this->time->getTime());
+		$this->mapper->update($entity);
+	}
+
+	/**
+	 * Every download URL the API has for a transaction, plus the format it
+	 * decided the document is. `signatureUrl` and `documentFormat` need SDK
+	 * >= 1.8.0; earlier releases parsed neither.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function downloadUrls(string $userId, string $transactionId): array {
+		$response = $this->clientFactory->documentsFor($userId)->download($transactionId);
+		return [
+			'originalUrl' => $response->originalUrl,
+			'signedUrl' => $response->signedUrl,
+			'signatureUrl' => $response->signatureUrl,
+			'documentFormat' => $response->documentFormat,
+		];
+	}
+
+	/**
+	 * Fetch an artifact from a SignDocs-issued presigned URL. Returns null (and
+	 * logs) on any failure so the job can retry later. Validates HTTPS; the URL
+	 * is trusted (issued by the SignDocs API), so no Content-Type allowlist is
+	 * applied.
+	 *
+	 * @param string|null $magic leading bytes to require, as a sanity check that
+	 *                           we got the artifact and not an error page. Pass
+	 *                           null for formats with no fixed prefix (the
+	 *                           original document can be any office format).
+	 */
+	private function fetchArtifact(string $url, ?string $magic): ?string {
 		if (!str_starts_with(strtolower($url), 'https://')) {
-			$this->logger->warning('Refusing non-HTTPS signed-document URL');
+			$this->logger->warning('Refusing non-HTTPS artifact URL');
 			return null;
 		}
 		try {
@@ -339,11 +552,18 @@ class SigningSessionService {
 			]);
 			$body = (string)$response->getBody();
 		} catch (\Throwable $e) {
-			$this->logger->warning('Failed to fetch signed document', ['exception' => $e]);
+			$this->logger->warning('Failed to fetch signed artifact', ['exception' => $e]);
 			return null;
 		}
-		if ($body === '' || strncmp($body, '%PDF-', 5) !== 0) {
-			$this->logger->warning('Signed document was empty or not a PDF');
+		if ($body === '') {
+			$this->logger->warning('Signed artifact was empty');
+			return null;
+		}
+		if ($magic !== null && strncmp($body, $magic, strlen($magic)) !== 0) {
+			$this->logger->warning('Signed artifact did not start with the expected bytes', [
+				'expected' => bin2hex($magic),
+				'got' => bin2hex(substr($body, 0, strlen($magic))),
+			]);
 			return null;
 		}
 		return $body;
@@ -393,10 +613,32 @@ class SigningSessionService {
 	 * Derive the signed-document filename from the original: strip a trailing
 	 * extension and append "-assinado.pdf".
 	 */
-	public static function signedFileName(?string $originalName): string {
+	/**
+	 * Name for a saved artifact: the original basename plus `-assinado` and the
+	 * given extension. Defaults to `pdf` because that's what every PDF and
+	 * combined-stamp flow produces; the CAdES flow passes the source document's
+	 * own extension for the document copy and `p7s` for the detached signature.
+	 */
+	public static function signedFileName(?string $originalName, string $extension = 'pdf'): string {
 		$base = ($originalName !== null && $originalName !== '') ? $originalName : 'documento';
 		$base = preg_replace('/\.[A-Za-z0-9]{1,5}$/', '', $base) ?? $base;
-		return $base . '-assinado.pdf';
+		return $base . '-assinado.' . ltrim($extension, '.');
+	}
+
+	/** Lowercase extension without the dot, or '' when there isn't one. */
+	public static function fileExtension(?string $name): string {
+		if ($name === null || $name === '') {
+			return '';
+		}
+		return preg_match('/\.([A-Za-z0-9]{1,5})$/', $name, $m) === 1 ? strtolower($m[1]) : '';
+	}
+
+	/**
+	 * True for the UI's canonical certificate mode and its legacy aliases. These
+	 * are the only modes that produce a detached CAdES signature for a non-PDF.
+	 */
+	public static function isDigitalCertificateMode(string $mode): bool {
+		return in_array($mode, ['digital_certificate', 'icp_a1', 'icp_a3'], true);
 	}
 
 	private function buildSigner(array $signerData, int $index): Signer {
@@ -508,14 +750,6 @@ class SigningSessionService {
 				);
 			}
 		}
-	}
-
-	/**
-	 * True for the UI's canonical certificate mode and its legacy aliases. These
-	 * are the only modes that produce a detached CAdES signature for a non-PDF.
-	 */
-	public static function isDigitalCertificateMode(string $mode): bool {
-		return in_array($mode, ['digital_certificate', 'icp_a1', 'icp_a3'], true);
 	}
 
 	private function requiresSequentialOrder(string $mode): bool {
