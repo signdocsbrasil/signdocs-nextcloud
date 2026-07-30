@@ -12,6 +12,8 @@ use OCP\AppFramework\Controller;
 use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\DataResponse;
+use OCP\Files\Folder;
+use OCP\Files\IRootFolder;
 use OCP\IRequest;
 use OCP\IUserSession;
 use Psr\Log\LoggerInterface;
@@ -23,6 +25,7 @@ class SigningController extends Controller {
 		private readonly SigningSessionMapper $mapper,
 		private readonly IUserSession $userSession,
 		private readonly LoggerInterface $logger,
+		private readonly IRootFolder $rootFolder,
 	) {
 		parent::__construct(Application::APP_ID, $request);
 	}
@@ -75,14 +78,35 @@ class SigningController extends Controller {
 		}
 
 		$entities = $this->mapper->findByUser($user->getUID(), $limit, $offset);
-		return new DataResponse(array_map(static fn ($e) => [
-			'sessionId' => $e->getSessionId(),
-			'fileId' => $e->getFileId(),
-			'status' => $e->getStatus(),
-			'createdAt' => $e->getCreatedAt(),
-			'updatedAt' => $e->getUpdatedAt(),
-			'signedFileId' => $e->getSignedFileId(),
-		], $entities));
+		$userFolder = $this->rootFolder->getUserFolder($user->getUID());
+
+		return new DataResponse(array_map(function ($e) use ($userFolder) {
+			$meta = json_decode((string)$e->getMetadata(), true);
+			$meta = is_array($meta) ? $meta : [];
+			$kind = $meta['kind'] ?? 'session';
+
+			// Enough for the UI to render a row without a second round-trip per
+			// item: what the document is called, how many people it went to, and
+			// whether there is anything left to cancel.
+			return [
+				'sessionId' => $e->getSessionId(),
+				'fileId' => $e->getFileId(),
+				'fileName' => $this->fileName($userFolder, $e->getFileId()),
+				'status' => $e->getStatus(),
+				'kind' => $kind,
+				'signerCount' => count($meta['shareLinks'] ?? $meta['signers'] ?? []),
+				'createdAt' => $e->getCreatedAt(),
+				'updatedAt' => $e->getUpdatedAt(),
+				'signedFileId' => $e->getSignedFileId(),
+				'cancellable' => !in_array($e->getStatus(), ['completed', 'cancelled'], true),
+			];
+		}, $entities));
+	}
+
+	/** Display name of a mirrored file, or null once it has been deleted. */
+	private function fileName(Folder $userFolder, int $fileId): ?string {
+		$nodes = $userFolder->getById($fileId);
+		return isset($nodes[0]) ? $nodes[0]->getName() : null;
 	}
 
 	/**

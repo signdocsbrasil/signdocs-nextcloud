@@ -51,5 +51,17 @@ style('signdocs_brasil', 'signdocs-landing-page');
 			accept=".pdf,.docx,.odt,.doc,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,application/msword" />
 
 		<div class="signdocs-landing-status" hidden></div>
+
+		<!-- Populated by landing-page.js from GET /api/v1/sessions. Hidden
+		     until there is something to show, so a fresh install stays clean. -->
+		<section class="signdocs-requests" hidden>
+			<header class="signdocs-requests-header">
+				<h2><?php p($l->t('Suas solicitações de assinatura')); ?></h2>
+				<button type="button" class="signdocs-requests-refresh">
+					<?php p($l->t('Atualizar')); ?>
+				</button>
+			</header>
+			<ul class="signdocs-requests-list"></ul>
+		</section>
 	</main>
 </div>

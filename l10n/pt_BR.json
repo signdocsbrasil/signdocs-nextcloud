@@ -82,7 +82,24 @@
 		"Signatários": "Signatários",
 		"Signatários (%n)": "Signatários (%n)",
 		"Tipo de assinatura": "Tipo de assinatura",
-		"Voltar": "Voltar"
+		"Voltar": "Voltar",
+		"Suas solicitações de assinatura": "Suas solicitações de assinatura",
+		"Atualizar": "Atualizar",
+		"Assinado": "Assinado",
+		"Cancelado": "Cancelado",
+		"Expirado": "Expirado",
+		"Falhou": "Falhou",
+		"Pendente": "Pendente",
+		"documento removido": "documento removido",
+		"%n signatários": "%n signatários",
+		"1 signatário": "1 signatário",
+		"Não foi possível carregar suas solicitações.": "Não foi possível carregar suas solicitações.",
+		"Cancelar? Os signatários pendentes não poderão mais assinar. Assinaturas já coletadas são preservadas.": "Cancelar? Os signatários pendentes não poderão mais assinar. Assinaturas já coletadas são preservadas.",
+		"Confirmar": "Confirmar",
+		"Cancelando…": "Cancelando…",
+		"Solicitação cancelada.": "Solicitação cancelada.",
+		"%n assinatura(s) já coletada(s) foram preservadas.": "%n assinatura(s) já coletada(s) foram preservadas.",
+		"Não foi possível cancelar: ": "Não foi possível cancelar: "
 	},
 	"pluralForm": "nplurals=2; plural=(n > 1);"
 }

@@ -6,7 +6,7 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "build": "npm run build:action && npm run build:landing",
-    "build:test": "esbuild src/files-action.js --bundle --target=es2020 --format=cjs --platform=browser --outfile=build/js-test/files-action.cjs",
+    "build:test": "esbuild src/files-action.js --bundle --target=es2020 --format=cjs --platform=browser --outfile=build/js-test/files-action.cjs && esbuild src/landing-page.js --bundle --target=es2020 --format=cjs --platform=browser --outfile=build/js-test/landing-page.cjs",
     "test": "npm run build:test && node --test 'tests/js/**/*.test.js'",
     "build:action": "esbuild src/files-action.js --bundle --minify --target=es2020 --format=iife --platform=browser --outfile=js/signdocs-files-action.js",
     "build:landing": "esbuild src/landing-page.js --bundle --minify --target=es2020 --format=iife --platform=browser --outfile=js/signdocs-landing-page.js",

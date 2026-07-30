@@ -344,6 +344,10 @@ function renderResult(overlay, data) {
 		})
 	})
 	result.querySelector('.signdocs-done').addEventListener('click', () => overlay.remove())
+
+	// Lets the landing page refresh its request list without a page reload.
+	// Nothing listens on the Files surface, which is harmless.
+	window.dispatchEvent(new CustomEvent('signdocs:session-created'))
 }
 
 function openSigningDialog(fileInfo) {

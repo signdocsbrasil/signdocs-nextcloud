@@ -83,7 +83,7 @@ Actual: `+m.attribValue);else{var nt=m.tag,ut=m.tags[m.tags.length-1]||m;nt.ns==
 			`).join("")}
 		</ul>
 		<button type="button" class="signdocs-done primary">${G(j,"Pronto")}</button>
-	`,i.querySelectorAll("button[data-copy]").forEach(o=>{o.addEventListener("click",()=>{navigator.clipboard?.writeText(o.getAttribute("data-copy")),o.textContent=G(j,"Copiado")})}),i.querySelector(".signdocs-done").addEventListener("click",()=>n.remove())}function rc(n){let t=document.createElement("div");t.className="signdocs-overlay",t.innerHTML=`
+	`,i.querySelectorAll("button[data-copy]").forEach(o=>{o.addEventListener("click",()=>{navigator.clipboard?.writeText(o.getAttribute("data-copy")),o.textContent=G(j,"Copiado")})}),i.querySelector(".signdocs-done").addEventListener("click",()=>n.remove()),window.dispatchEvent(new CustomEvent("signdocs:session-created"))}function rc(n){let t=document.createElement("div");t.className="signdocs-overlay",t.innerHTML=`
 		<div class="signdocs-dialog" role="dialog" aria-labelledby="sdb-title">
 			<header>
 				<h2 id="sdb-title">${G(j,"Assinar com SignDocs Brasil")}</h2>

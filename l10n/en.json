@@ -82,7 +82,24 @@
 		"Signatários": "Signers",
 		"Signatários (%n)": "Signers (%n)",
 		"Tipo de assinatura": "Signature type",
-		"Voltar": "Back"
+		"Voltar": "Back",
+		"Suas solicitações de assinatura": "Your signature requests",
+		"Atualizar": "Refresh",
+		"Assinado": "Signed",
+		"Cancelado": "Cancelled",
+		"Expirado": "Expired",
+		"Falhou": "Failed",
+		"Pendente": "Pending",
+		"documento removido": "document removed",
+		"%n signatários": "%n signers",
+		"1 signatário": "1 signer",
+		"Não foi possível carregar suas solicitações.": "Could not load your requests.",
+		"Cancelar? Os signatários pendentes não poderão mais assinar. Assinaturas já coletadas são preservadas.": "Cancel? Pending signers will no longer be able to sign. Signatures already collected are preserved.",
+		"Confirmar": "Confirm",
+		"Cancelando…": "Cancelling…",
+		"Solicitação cancelada.": "Request cancelled.",
+		"%n assinatura(s) já coletada(s) foram preservadas.": "%n signature(s) already collected were preserved.",
+		"Não foi possível cancelar: ": "Could not cancel: "
 	},
 	"pluralForm": "nplurals=2; plural=(n != 1);"
 }

@@ -10,6 +10,8 @@ use OCA\SignDocsBrasil\Db\SigningSessionMapper;
 use OCA\SignDocsBrasil\Service\NotConnectedException;
 use OCA\SignDocsBrasil\Service\SigningSessionService;
 use OCP\AppFramework\Http;
+use OCP\Files\Folder;
+use OCP\Files\IRootFolder;
 use OCP\IRequest;
 use OCP\IUserSession;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -41,6 +43,10 @@ class SigningControllerTest extends TestCase {
 	private $userSession;
 	/** @var LoggerInterface&MockObject */
 	private $logger;
+	/** @var IRootFolder&MockObject */
+	private $rootFolder;
+	/** @var Folder&MockObject */
+	private $userFolder;
 
 	private SigningController $controller;
 
@@ -51,6 +57,9 @@ class SigningControllerTest extends TestCase {
 		$this->mapper = $this->createMock(SigningSessionMapper::class);
 		$this->userSession = $this->createMock(IUserSession::class);
 		$this->logger = $this->createMock(LoggerInterface::class);
+		$this->rootFolder = $this->createMock(IRootFolder::class);
+		$this->userFolder = $this->createMock(Folder::class);
+		$this->rootFolder->method('getUserFolder')->willReturn($this->userFolder);
 
 		$this->controller = new SigningController(
 			$this->request,
@@ -58,6 +67,7 @@ class SigningControllerTest extends TestCase {
 			$this->mapper,
 			$this->userSession,
 			$this->logger,
+			$this->rootFolder,
 		);
 	}
 
@@ -116,5 +126,63 @@ class SigningControllerTest extends TestCase {
 		self::assertSame('sess_abc123', $response->getData()['sessionId']);
 		self::assertSame('pending', $response->getData()['status']);
 		self::assertIsArray($response->getData()['metadata']);
+	}
+
+	public function testListForUserEnrichesRowsForTheUi(): void {
+		// The request list renders straight from this payload, so it has to carry
+		// the file name, the signer count and whether anything is left to cancel
+		// — otherwise the UI needs a round-trip per row.
+		$user = $this->createMock(\OCP\IUser::class);
+		$user->method('getUID')->willReturn('admin');
+		$this->userSession->method('getUser')->willReturn($user);
+
+		$entity = new \OCA\SignDocsBrasil\Db\SigningSession();
+		$entity->setSessionId('env_1');
+		$entity->setFileId(7);
+		$entity->setUserId('admin');
+		$entity->setStatus('pending');
+		$entity->setMetadata(json_encode([
+			'kind' => 'envelope',
+			'shareLinks' => [['sessionId' => 'ss_a'], ['sessionId' => 'ss_b']],
+		], JSON_THROW_ON_ERROR));
+		$this->mapper->method('findByUser')->willReturn([$entity]);
+
+		$file = $this->createMock(\OCP\Files\File::class);
+		$file->method('getName')->willReturn('Contrato.pdf');
+		$this->userFolder->method('getById')->willReturn([$file]);
+
+		$row = $this->controller->listForUser()->getData()[0];
+
+		self::assertSame('env_1', $row['sessionId']);
+		self::assertSame('Contrato.pdf', $row['fileName']);
+		self::assertSame('envelope', $row['kind']);
+		self::assertSame(2, $row['signerCount']);
+		self::assertTrue($row['cancellable']);
+	}
+
+	public function testListForUserMarksTerminalRowsUncancellable(): void {
+		$user = $this->createMock(\OCP\IUser::class);
+		$user->method('getUID')->willReturn('admin');
+		$this->userSession->method('getUser')->willReturn($user);
+
+		$rows = [];
+		foreach (['completed', 'cancelled', 'pending'] as $status) {
+			$e = new \OCA\SignDocsBrasil\Db\SigningSession();
+			$e->setSessionId('ss_' . $status);
+			$e->setFileId(7);
+			$e->setStatus($status);
+			$e->setMetadata('{"kind":"session"}');
+			$rows[] = $e;
+		}
+		$this->mapper->method('findByUser')->willReturn($rows);
+		$this->userFolder->method('getById')->willReturn([]);
+
+		$data = $this->controller->listForUser()->getData();
+
+		self::assertFalse($data[0]['cancellable'], 'completed');
+		self::assertFalse($data[1]['cancellable'], 'cancelled');
+		self::assertTrue($data[2]['cancellable'], 'pending');
+		// A deleted document still yields a row the UI can render.
+		self::assertNull($data[0]['fileName']);
 	}
 }
