@@ -46,6 +46,13 @@
 	gap: 12px;
 }
 
+/* The display:flex above is an author declaration and outranks the UA's
+ * [hidden] { display: none }, so setting form.hidden would otherwise leave
+ * the form on screen underneath the review and result panels. */
+.signdocs-form[hidden] {
+	display: none;
+}
+
 .signdocs-file-name {
 	font-weight: 600;
 	margin: 0 0 4px;

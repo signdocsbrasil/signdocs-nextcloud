@@ -41,6 +41,13 @@ class SigningSessionService {
 	/** Leading bytes of a PDF. */
 	private const MAGIC_PDF = '%PDF-';
 
+	/** The mutually exclusive status badges a file can carry. */
+	private const STATUS_TAGS = [
+		Application::TAG_PENDENTE,
+		Application::TAG_ASSINADO,
+		Application::TAG_CANCELADO,
+	];
+
 	public function __construct(
 		private readonly SignDocsClientFactory $clientFactory,
 		private readonly SigningSessionMapper $mapper,
@@ -548,6 +555,14 @@ class SigningSessionService {
 		return $saved;
 	}
 
+	/**
+	 * Badge the file with its current signing status.
+	 *
+	 * The three signdocs:* tags are mutually exclusive — a document is pending
+	 * OR signed OR cancelled — so the previous badge has to come off. assignTags
+	 * only ever adds, which left every completed document still showing
+	 * "Pendente" in the Files list alongside "Assinado".
+	 */
 	private function applyStatusTag(int $fileId, string $tagName): void {
 		try {
 			$tags = $this->tagManager->getAllTags(null, $tagName);
@@ -555,6 +570,32 @@ class SigningSessionService {
 			$this->tagObjectMapper->assignTags((string)$fileId, 'files', $tag->getId());
 		} catch (TagNotFoundException $e) {
 			$this->logger->warning('Status tag missing, skipping', ['tag' => $tagName, 'exception' => $e]);
+			return;
+		}
+
+		$this->clearOtherStatusTags($fileId, $tagName);
+	}
+
+	/**
+	 * Strip whichever of the other two status tags the file still carries.
+	 * unassignTags is documented to fail silently when the relationship was
+	 * never there, so this runs unconditionally rather than reading the
+	 * current assignments first.
+	 */
+	private function clearOtherStatusTags(int $fileId, string $keep): void {
+		foreach (self::STATUS_TAGS as $name) {
+			if ($name === $keep) {
+				continue;
+			}
+			try {
+				$tags = $this->tagManager->getAllTags(null, $name);
+				$tag = $tags[array_key_first($tags)] ?? null;
+				if ($tag !== null) {
+					$this->tagObjectMapper->unassignTags((string)$fileId, 'files', $tag->getId());
+				}
+			} catch (TagNotFoundException) {
+				// Tag was never created on this instance — nothing to strip.
+			}
 		}
 	}
 }
