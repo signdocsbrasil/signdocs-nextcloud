@@ -38,6 +38,9 @@ use SignDocsBrasil\Api\Models\Signer;
  * `{url}?cs={clientSecret}` per the SignDocs URL assembly contract).
  */
 class SigningSessionService {
+	/** Leading bytes of a PDF. */
+	private const MAGIC_PDF = '%PDF-';
+
 	public function __construct(
 		private readonly SignDocsClientFactory $clientFactory,
 		private readonly SigningSessionMapper $mapper,
@@ -89,8 +92,10 @@ class SigningSessionService {
 			throw new NotFoundException('File not found in user storage: ' . $fileId);
 		}
 		$file = $nodes[0];
+		$content = $file->getContent();
+		$this->validateDocumentFormat($content, (string)($options['mode'] ?? 'electronic'));
 		$documentInline = [
-			'content' => base64_encode($file->getContent()),
+			'content' => base64_encode($content),
 			'filename' => $file->getName(),
 		];
 
@@ -407,20 +412,63 @@ class SigningSessionService {
 	}
 
 	/**
-	 * Reject combinations the SignDocs API would also reject, before making
-	 * the round-trip. Today the only such combination is digital-certificate
-	 * signing with multiple signers in parallel order — ICP-Brasil signatures
-	 * chain across signers and the verifier needs them in deterministic order.
+	 * Reject order/mode combinations the dialog cannot produce, before making
+	 * the round-trip. Sequential order and ICP-Brasil digital certificates are
+	 * bound to each other in both directions: ICP-Brasil signatures chain
+	 * across signers so the verifier needs them in deterministic order, and
+	 * conversely sequential order is only offered for that mode — a click or
+	 * OTP envelope has nothing to chain, so the dropdown no longer exposes it.
 	 *
 	 * Throws InvalidArgumentException with a stable English message so the
 	 * controller can map to a 422 with a code the front-end can localize.
 	 */
 	private function validateOptions(string $mode, string $orderUpper, int $signerCount): void {
-		if ($this->requiresSequentialOrder($mode) && $signerCount >= 2 && $orderUpper !== 'SEQUENTIAL') {
+		$requiresSequential = $this->requiresSequentialOrder($mode);
+
+		if ($requiresSequential && $signerCount >= 2 && $orderUpper !== 'SEQUENTIAL') {
 			throw new \InvalidArgumentException(
 				'Digital certificate signing requires sequential order with multiple signers.'
 			);
 		}
+
+		// A stale front-end (or a hand-rolled request) asking for sequential
+		// order under a click/OTP policy. With a single signer the order is
+		// inert — createSingle never builds an envelope — so only guard the
+		// multi-signer case, matching the rule above.
+		if (!$requiresSequential && $signerCount >= 2 && $orderUpper === 'SEQUENTIAL') {
+			throw new \InvalidArgumentException(
+				'Sequential order requires digital certificate signing.'
+			);
+		}
+	}
+
+	/**
+	 * A non-PDF may only be signed with an ICP-Brasil certificate.
+	 *
+	 * The API keeps non-PDF uploads as documentFormat=generic, and the only
+	 * artifact that path can produce is the detached .p7s written by the
+	 * certificate step. Under a click/OTP policy the signature is recorded and
+	 * evidenced but no signed document exists to hand back, which reads to the
+	 * user as a silent failure. So refuse the combination outright rather than
+	 * accept a request whose result can't be delivered.
+	 *
+	 * Decided by sniffing the leading bytes, exactly as the API does — the
+	 * filename is not authoritative, and gating on the extension would reject a
+	 * mislabelled PDF the API would happily have stamped.
+	 *
+	 * Lifts once we can convert to PDF before upload (Collabora), which makes
+	 * click/OTP viable again by signing a PDF rendition.
+	 */
+	private function validateDocumentFormat(string $content, string $mode): void {
+		if (strncmp($content, self::MAGIC_PDF, strlen(self::MAGIC_PDF)) === 0) {
+			return;
+		}
+		if (self::isDigitalCertificateMode($mode)) {
+			return;
+		}
+		throw new \InvalidArgumentException(
+			'Non-PDF documents require digital certificate signing.'
+		);
 	}
 
 	/**
@@ -455,10 +503,18 @@ class SigningSessionService {
 		}
 	}
 
-	private function requiresSequentialOrder(string $mode): bool {
-		// digital_certificate is the canonical UI input; icp_a1 / icp_a3 are
-		// retained as legacy aliases (see mapModeToProfile).
+	/**
+	 * True for the UI's canonical certificate mode and its legacy aliases. These
+	 * are the only modes that produce a detached CAdES signature for a non-PDF.
+	 */
+	public static function isDigitalCertificateMode(string $mode): bool {
 		return in_array($mode, ['digital_certificate', 'icp_a1', 'icp_a3'], true);
+	}
+
+	private function requiresSequentialOrder(string $mode): bool {
+		// Certificate signing chains each signature onto the previous one, so it
+		// is exactly the certificate modes that force sequential order.
+		return self::isDigitalCertificateMode($mode);
 	}
 
 	private function mapModeToProfile(string $mode): string {

@@ -369,21 +369,28 @@ function openSigningDialog(fileInfo) {
 
 				<label>
 					${t(APP_ID, 'Modo de assinatura')}
+					<!-- For a non-PDF the click/OTP options are removed entirely —
+					     see restrictModesForFormat. -->
 					<select name="mode">
 						<option value="electronic">${t(APP_ID, 'Eletrônica simples (clique)')}</option>
 						<option value="click_plus_otp">${t(APP_ID, 'Clique + OTP por email')}</option>
 						<option value="digital_certificate">${t(APP_ID, 'Certificado Digital ICP-Brasil (A1/A3)')}</option>
 					</select>
+					<small class="signdocs-mode-locked-hint" hidden>
+						${t(APP_ID, 'Documentos que não são PDF só podem ser assinados com Certificado Digital ICP-Brasil, que gera a assinatura destacada (.p7s). Converta para PDF se quiser usar assinatura eletrônica simples ou OTP.')}
+					</small>
 				</label>
 
 				<label>
 					${t(APP_ID, 'Ordem')}
-					<select name="order">
+					<!-- The sequential option is injected only while ICP-Brasil
+					     digital-certificate mode is selected — see
+					     updateSequentialMode. -->
+					<select name="order" disabled>
 						<option value="parallel">${t(APP_ID, 'Paralela (qualquer ordem)')}</option>
-						<option value="sequential">${t(APP_ID, 'Sequencial')}</option>
 					</select>
-					<small class="signdocs-order-locked-hint" hidden>
-						${t(APP_ID, 'Certificado Digital ICP-Brasil exige assinatura sequencial.')}
+					<small class="signdocs-order-locked-hint">
+						${t(APP_ID, 'Assinatura sequencial disponível apenas com Certificado Digital ICP-Brasil.')}
 					</small>
 				</label>
 
@@ -411,38 +418,59 @@ function openSigningDialog(fileInfo) {
 	const orderSelect = overlay.querySelector('select[name=order]')
 	const sequentialHint = overlay.querySelector('.signdocs-sequential-hint')
 	const orderLockedHint = overlay.querySelector('.signdocs-order-locked-hint')
-	// Remembers the user's chosen order BEFORE we force-flipped it to
-	// sequential on entering ICP mode. When they switch the mode dropdown
-	// back to a non-ICP option, we restore this value so they don't get
-	// stranded in sequential UI (with drag handles, numbers, arrows still
-	// active) just because ICP overrode their pick.
-	let savedOrderBeforeIcp = null
+	const modeLockedHint = overlay.querySelector('.signdocs-mode-locked-hint')
+
+	// A non-PDF can only be signed with an ICP-Brasil certificate. The API keeps
+	// non-PDF uploads as documentFormat=generic, and the only artifact that path
+	// produces is the detached .p7s written by the certificate step — a click or
+	// OTP signature on a .docx is recorded and evidenced but yields no signed
+	// document to hand back. Rather than let users reach that dead end, drop the
+	// options entirely. Lifts once conversion-to-PDF exists (Collabora), which
+	// would make click/OTP viable again by signing a PDF rendition instead.
+	const restrictModesForFormat = () => {
+		if (/\.pdf$/i.test(fileInfo.name)) return
+		for (const value of ['electronic', 'click_plus_otp']) {
+			modeSelect.querySelector(`option[value="${value}"]`)?.remove()
+		}
+		modeSelect.value = 'digital_certificate'
+		modeLockedHint.hidden = false
+	}
+	restrictModesForFormat()
+
+	// Sequential ordering belongs to ICP-Brasil digital certificates alone:
+	// each signer chains onto the previous signature, so the order is part of
+	// how the signature is built rather than a scheduling preference. Every
+	// other mode is parallel, so the option is only ever attached to the
+	// dropdown while digital-certificate mode is selected — the order is
+	// derived from the mode, never chosen on its own, hence the permanently
+	// disabled select and the hint that explains what drives it.
+	const sequentialOption = document.createElement('option')
+	sequentialOption.value = 'sequential'
+	sequentialOption.textContent = t(APP_ID, 'Sequencial')
 
 	const updateSequentialMode = () => {
-		// Digital-certificate signing requires sequential ordering — the
-		// signer must consume the previous signer's chained signature, so
-		// parallel mode is not a valid choice here. Force it and lock the
-		// dropdown so the user can't accidentally violate the constraint.
-		const requiresSequential = modeSelect.value === 'digital_certificate'
-		const wasIcpLocked = orderSelect.disabled
+		const isIcp = modeSelect.value === 'digital_certificate'
 
-		if (requiresSequential && !wasIcpLocked) {
-			savedOrderBeforeIcp = orderSelect.value
+		if (isIcp) {
+			if (!sequentialOption.parentElement) {
+				orderSelect.appendChild(sequentialOption)
+			}
 			orderSelect.value = 'sequential'
-			orderSelect.disabled = true
-		} else if (!requiresSequential && wasIcpLocked) {
-			orderSelect.value = savedOrderBeforeIcp ?? 'parallel'
-			orderSelect.disabled = false
-			savedOrderBeforeIcp = null
+		} else {
+			sequentialOption.remove()
+			orderSelect.value = 'parallel'
 		}
 
-		const isSequential = orderSelect.value === 'sequential'
-		sequentialHint.hidden = !isSequential
-		orderLockedHint.hidden = !requiresSequential
-		signerList.classList.toggle('signdocs-sequential', isSequential)
+		orderLockedHint.textContent = isIcp
+			? t(APP_ID, 'Certificado Digital ICP-Brasil exige assinatura sequencial.')
+			: t(APP_ID, 'Assinatura sequencial disponível apenas com Certificado Digital ICP-Brasil.')
+
+		// Reordering controls (numbers, arrows, drag handles) only make sense
+		// when the order is actually meaningful.
+		sequentialHint.hidden = !isIcp
+		signerList.classList.toggle('signdocs-sequential', isIcp)
 	}
 	modeSelect.addEventListener('change', updateSequentialMode)
-	orderSelect.addEventListener('change', updateSequentialMode)
 	updateSequentialMode()
 
 	// Reads and validates the signer rows. Returns null (after alerting and
@@ -518,6 +546,9 @@ function openSigningDialog(fileInfo) {
 		const signers = collectSigners()
 		if (signers === null) return
 
+		// Read the selects through the refs already in scope rather than the
+		// form's named properties: the order select is disabled now that it's
+		// derived from the mode, which excludes it from the form's own data.
 		const options = { mode: modeSelect.value, order: orderSelect.value }
 
 		renderConfirmStep(

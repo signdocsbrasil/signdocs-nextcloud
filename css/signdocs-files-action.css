@@ -160,7 +160,8 @@
 	color: var(--color-text-maxcontrast, #555);
 }
 
-.signdocs-order-locked-hint {
+.signdocs-order-locked-hint,
+.signdocs-mode-locked-hint {
 	display: block;
 	margin-top: 4px;
 	font-size: 11px;
@@ -168,11 +169,11 @@
 	color: var(--color-text-maxcontrast, #777);
 }
 
-/* Restore the browser default [hidden] behavior — our display:block above
- * has the same specificity and loads later, which would otherwise leave
- * the ICP-locked hint stuck on screen after the user switches the mode
- * dropdown back to a non-ICP option. */
-.signdocs-order-locked-hint[hidden] {
+/* The order hint is always on screen (its text changes with the mode), but the
+ * mode hint is toggled — and display:block above is an author declaration that
+ * would outrank the UA's [hidden] { display: none } without this. */
+.signdocs-order-locked-hint[hidden],
+.signdocs-mode-locked-hint[hidden] {
 	display: none;
 }
 
