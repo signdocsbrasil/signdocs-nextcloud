@@ -210,6 +210,57 @@ class SigningSessionService {
 	}
 
 	/**
+	 * Cancel a signing flow so nobody can sign it any more.
+	 *
+	 * Envelopes go through the envelope's own cancel endpoint, which is what the
+	 * Telegram bot uses. It transitions every non-terminal member session and its
+	 * transaction in one auditable operation and — unlike cancelling the members
+	 * individually — actually moves the envelope's own status to CANCELLED.
+	 * Signatures already collected are preserved upstream and reported back, so
+	 * cancelling never invalidates evidence that was already gathered.
+	 *
+	 * Single-signer rows cancel their one session.
+	 *
+	 * Both endpoints are idempotent server-side, so re-cancelling is a safe no-op
+	 * rather than an error.
+	 *
+	 * @return array{cancelled: int, preservedSigned: int, alreadyCancelled: bool}
+	 * @throws DoesNotExistException when the id is not mirrored locally
+	 * @throws NotConnectedException when the user has no linked SignDocs account
+	 */
+	public function cancelSigningFlow(string $sessionId, ?string $reason = null): array {
+		$entity = $this->mapper->findBySessionId($sessionId);
+		$userId = $entity->getUserId();
+
+		$meta = json_decode((string)$entity->getMetadata(), true);
+		$meta = is_array($meta) ? $meta : [];
+
+		if (($meta['kind'] ?? 'session') === 'envelope') {
+			$response = $this->clientFactory
+				->envelopesFor($userId)
+				->cancel($entity->getSessionId(), $reason ?? 'cancelled_via_nextcloud');
+			$result = [
+				'cancelled' => $response->cancelledCount,
+				'preservedSigned' => $response->preservedSignedCount,
+				'alreadyCancelled' => $response->alreadyCancelled,
+			];
+		} else {
+			$this->clientFactory->signingSessionsFor($userId)->cancel($entity->getSessionId());
+			$result = ['cancelled' => 1, 'preservedSigned' => 0, 'alreadyCancelled' => false];
+		}
+
+		$this->applyToEntity($entity, 'cancelled', null);
+
+		$this->logger->info('Cancelled SignDocs signing flow', [
+			'sessionId' => $sessionId,
+			'cancelled' => $result['cancelled'],
+			'preservedSigned' => $result['preservedSigned'],
+		]);
+
+		return $result;
+	}
+
+	/**
 	 * Apply a status update keyed by session/envelope id. Used by the polling
 	 * background job, which reconciles by the id it stored at create time.
 	 */

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c094a3c71a8d62dfae9a0832ae6150d8",
+    "content-hash": "da58243f091fc3ff9501bf85f4f8ef9a",
     "packages": [
         {
             "name": "firebase/php-jwt",
@@ -651,16 +651,16 @@
         },
         {
             "name": "signdocs-brasil/signdocs-brasil-php",
-            "version": "1.8.0",
+            "version": "1.9.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/signdocsbrasil/signdocs-brasil-php.git",
-                "reference": "62003a3695a5c1cceaf7264fa4815ebeed32240b"
+                "reference": "2cbf66cef4ce6d60ad13c8246c37fbd4076b0b7b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/signdocsbrasil/signdocs-brasil-php/zipball/62003a3695a5c1cceaf7264fa4815ebeed32240b",
-                "reference": "62003a3695a5c1cceaf7264fa4815ebeed32240b",
+                "url": "https://api.github.com/repos/signdocsbrasil/signdocs-brasil-php/zipball/2cbf66cef4ce6d60ad13c8246c37fbd4076b0b7b",
+                "reference": "2cbf66cef4ce6d60ad13c8246c37fbd4076b0b7b",
                 "shasum": ""
             },
             "require": {
@@ -705,7 +705,7 @@
                 "issues": "https://github.com/signdocsbrasil/signdocs-brasil-php/issues",
                 "source": "https://github.com/signdocsbrasil/signdocs-brasil-php"
             },
-            "time": "2026-07-30T01:32:05+00:00"
+            "time": "2026-07-30T10:13:17+00:00"
         },
         {
             "name": "symfony/deprecation-contracts",

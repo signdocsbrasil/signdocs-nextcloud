@@ -12,6 +12,8 @@ return [
 		['name' => 'signing#listForUser', 'url' => '/api/v1/sessions', 'verb' => 'GET'],
 		['name' => 'signing#listForFile', 'url' => '/api/v1/files/{fileId}/sessions', 'verb' => 'GET',
 			'requirements' => ['fileId' => '\d+']],
+		// Cancel a flow: single session, or every session inside an envelope.
+		['name' => 'signing#cancel', 'url' => '/api/v1/sessions/{sessionId}/cancel', 'verb' => 'POST'],
 
 		// Document intake — convert local upload / remote URL into a NC fileId.
 		// The existing /api/v1/sessions then handles the rest of the flow.

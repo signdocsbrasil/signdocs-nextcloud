@@ -9,6 +9,7 @@ use OCA\SignDocsBrasil\Db\SigningSessionMapper;
 use OCA\SignDocsBrasil\Service\NotConnectedException;
 use OCA\SignDocsBrasil\Service\SigningSessionService;
 use OCP\AppFramework\Controller;
+use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Http;
 use OCP\AppFramework\Http\DataResponse;
 use OCP\IRequest;
@@ -95,5 +96,63 @@ class SigningController extends Controller {
 			'createdAt' => $e->getCreatedAt(),
 			'updatedAt' => $e->getUpdatedAt(),
 		], $entities));
+	}
+
+	/**
+	 * Cancel a signing flow. Works for both single-signer sessions and
+	 * envelopes, where every member session is cancelled.
+	 *
+	 * Ownership is enforced here: a user may only cancel their own rows, since
+	 * the id alone is guessable enough to be worth checking.
+	 *
+	 * @NoAdminRequired
+	 */
+	public function cancel(string $sessionId): DataResponse {
+		$user = $this->userSession->getUser();
+		if ($user === null) {
+			return new DataResponse(['error' => 'not_authenticated'], Http::STATUS_UNAUTHORIZED);
+		}
+
+		try {
+			$entity = $this->mapper->findBySessionId($sessionId);
+		} catch (DoesNotExistException) {
+			return new DataResponse(['error' => 'not_found'], Http::STATUS_NOT_FOUND);
+		}
+		if ($entity->getUserId() !== $user->getUID()) {
+			return new DataResponse(['error' => 'forbidden'], Http::STATUS_FORBIDDEN);
+		}
+		if (in_array($entity->getStatus(), ['completed', 'cancelled'], true)) {
+			// Already terminal — cancelling a signed document is meaningless and
+			// re-cancelling is a no-op worth reporting as a conflict.
+			return new DataResponse(
+				['error' => 'not_cancellable', 'status' => $entity->getStatus()],
+				Http::STATUS_CONFLICT,
+			);
+		}
+
+		try {
+			$result = $this->service->cancelSigningFlow($sessionId);
+		} catch (NotConnectedException $e) {
+			return new DataResponse(
+				['error' => 'not_connected', 'message' => $e->getMessage()],
+				Http::STATUS_PRECONDITION_FAILED,
+			);
+		} catch (\Throwable $e) {
+			$this->logger->error('Failed to cancel signing flow', ['exception' => $e]);
+			return new DataResponse(
+				['error' => 'cancel_failed', 'message' => $e->getMessage()],
+				Http::STATUS_INTERNAL_SERVER_ERROR,
+			);
+		}
+
+		return new DataResponse([
+			'sessionId' => $sessionId,
+			'status' => 'cancelled',
+			// How many pending signers were stopped, and how many signatures
+			// already collected were left intact upstream.
+			'cancelledCount' => $result['cancelled'],
+			'preservedSignedCount' => $result['preservedSigned'],
+			'alreadyCancelled' => $result['alreadyCancelled'],
+		]);
 	}
 }

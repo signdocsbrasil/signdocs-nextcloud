@@ -8,6 +8,8 @@ use OCA\SignDocsBrasil\AppInfo\Application;
 use OCP\IUserSession;
 use SignDocsBrasil\Api\Config;
 use SignDocsBrasil\Api\Resources\DocumentsResource;
+use SignDocsBrasil\Api\Resources\EnvelopesResource;
+use SignDocsBrasil\Api\Resources\SigningSessionsResource;
 use SignDocsBrasil\Api\SignDocsBrasilClient;
 
 /**
@@ -56,6 +58,16 @@ class SignDocsClientFactory {
 	 */
 	public function documentsFor(string $userId): DocumentsResource {
 		return $this->forUser($userId)->documents;
+	}
+
+	/** Signing-sessions resource for a specific user. Same rationale as above. */
+	public function signingSessionsFor(string $userId): SigningSessionsResource {
+		return $this->forUser($userId)->signingSessions;
+	}
+
+	/** Envelopes resource for a specific user. Same rationale as above. */
+	public function envelopesFor(string $userId): EnvelopesResource {
+		return $this->forUser($userId)->envelopes;
 	}
 
 	private function configForUser(string $userId): Config {
