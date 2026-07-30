@@ -220,6 +220,155 @@
 	border-color: var(--color-primary, #0082c9);
 }
 
+/* Review step — shown between the form and the POST. */
+.signdocs-confirm {
+	padding: 16px 20px;
+}
+
+.signdocs-confirm h3 {
+	margin: 0 0 6px;
+	font-size: 16px;
+}
+
+.signdocs-confirm-lead {
+	margin: 0 0 14px;
+	font-size: 13px;
+	color: var(--color-text-maxcontrast, #555);
+}
+
+.signdocs-confirm-warning {
+	padding: 8px 10px;
+	border-left: 3px solid var(--color-warning, #e9a200);
+	background: var(--color-background-hover, #f5f5f5);
+	color: var(--color-main-text, #000);
+}
+
+.signdocs-confirm-summary {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 6px 12px;
+	margin: 0;
+	padding: 12px 14px;
+	border: 1px solid var(--color-border, #ddd);
+	border-radius: 6px;
+	background: var(--color-background-hover, #f8f8f8);
+	font-size: 13px;
+}
+
+.signdocs-confirm-summary dt {
+	color: var(--color-text-maxcontrast, #666);
+}
+
+.signdocs-confirm-summary dd {
+	margin: 0;
+	font-weight: 500;
+	text-align: right;
+	word-break: break-word;
+}
+
+.signdocs-confirm-highlight {
+	color: var(--color-primary-element, var(--color-primary, #0082c9));
+	font-weight: 600;
+}
+
+.signdocs-confirm-signers {
+	margin-top: 12px;
+	padding: 12px 14px;
+	border: 1px solid var(--color-border, #ddd);
+	border-radius: 6px;
+}
+
+.signdocs-confirm-signers-title {
+	display: block;
+	font-size: 13px;
+	color: var(--color-text-maxcontrast, #666);
+	margin-bottom: 4px;
+}
+
+.signdocs-confirm-signer-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	counter-reset: signdocs-signer;
+}
+
+.signdocs-confirm-signer-list li {
+	border-top: 1px solid var(--color-border, #eee);
+	padding: 8px 0;
+}
+
+/* Sequential order: number the entries so the review shows the signing
+ * order, matching the numbered rows in the form. */
+.signdocs-confirm-signer-list.signdocs-numbered li {
+	counter-increment: signdocs-signer;
+	padding-left: 22px;
+	position: relative;
+}
+
+.signdocs-confirm-signer-list.signdocs-numbered li::before {
+	content: counter(signdocs-signer) ".";
+	position: absolute;
+	left: 0;
+	color: var(--color-text-maxcontrast, #888);
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	font-size: 13px;
+}
+
+.signdocs-confirm-signer-name {
+	display: block;
+	font-weight: 500;
+	word-break: break-word;
+}
+
+.signdocs-confirm-signer-email {
+	display: block;
+	font-size: 13px;
+	color: var(--color-text-maxcontrast, #555);
+	word-break: break-all;
+}
+
+.signdocs-confirm-signer-doc {
+	display: block;
+	font-size: 12px;
+	color: var(--color-text-maxcontrast, #777);
+}
+
+.signdocs-confirm-signer-note {
+	display: block;
+	margin-top: 2px;
+	font-size: 12px;
+	font-style: italic;
+	color: var(--color-text-maxcontrast, #777);
+}
+
+.signdocs-confirm footer {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 16px;
+	padding-top: 12px;
+	border-top: 1px solid var(--color-border, #ddd);
+}
+
+.signdocs-confirm footer button {
+	padding: 8px 16px;
+	border-radius: 4px;
+	border: 1px solid var(--color-border-dark, #ccc);
+	cursor: pointer;
+}
+
+.signdocs-confirm footer button.primary {
+	background: var(--color-primary, #0082c9);
+	color: var(--color-primary-text, #fff);
+	border-color: var(--color-primary, #0082c9);
+}
+
+.signdocs-confirm footer button:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
+}
+
 .signdocs-result {
 	padding: 16px 20px;
 }

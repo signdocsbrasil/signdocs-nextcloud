@@ -28,6 +28,19 @@ const initialState = loadState(APP_ID, 'signdocs', {
 
 const supportedMimeTypes = new Set(initialState.supportedMimeTypes || [])
 
+// The signing dialog is also opened from the landing page, which publishes its
+// own initial-state key. Read both so the confirmation step knows the NC user's
+// email on either entry surface.
+const landingState = loadState(APP_ID, 'signdocs_landing', {})
+
+// SignDocs only auto-dispatches the invite emails when the create request
+// carries an owner, and the API skips the invite for a signer whose address
+// matches that owner's (they get the link back in the response instead). The
+// owner is the NC user's profile email — absent, nothing is emailed. See
+// SigningSessionService::create. The confirmation step reads this so it states
+// what will actually happen rather than promising invites we know won't go out.
+const ownerEmail = String(initialState.userEmail || landingState.userEmail || '').trim()
+
 const SIGN_ICON = `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
 	<path fill="currentColor" d="M3 17v3h3l11-11-3-3L3 17zm17.7-11.3a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-2 2 3.4 3.4 2-2z"/>
@@ -76,6 +89,38 @@ function isValidCnpj(digits) {
 	if (calc(digits.slice(0, 13), w2) !== parseInt(digits[13], 10)) return false
 	return true
 }
+
+// Punctuate digits-only documents for the review step: CPF as 123.456.789-00,
+// CNPJ as 12.345.678/0001-00. Input is already validated by this point.
+function formatCpfCnpj(digits) {
+	const d = String(digits ?? '').replace(/\D+/g, '')
+	if (d.length === 11) {
+		return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`
+	}
+	if (d.length === 14) {
+		return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`
+	}
+	return d
+}
+
+function modeLabel(mode, fileName) {
+	if (mode === 'click_plus_otp') return t(APP_ID, 'Clique + OTP por email')
+	if (mode === 'digital_certificate') {
+		// PAdES (signature embedded in the PDF) for .pdf; CAdES (detached
+		// .p7s alongside the original) for everything else.
+		return /\.pdf$/i.test(fileName)
+			? t(APP_ID, 'Certificado ICP-Brasil (PAdES, embutido no PDF)')
+			: t(APP_ID, 'Certificado ICP-Brasil (CAdES, .p7s separado)')
+	}
+	return t(APP_ID, 'Eletrônica simples (clique)')
+}
+
+function orderLabel(order) {
+	return order === 'sequential'
+		? t(APP_ID, 'Sequencial')
+		: t(APP_ID, 'Paralela (qualquer ordem)')
+}
+
 
 function addSignerRow(container) {
 	const row = document.createElement('div')
@@ -169,10 +214,113 @@ function getRowAfterY(container, y) {
 	}) || null
 }
 
+/**
+ * Review step. Nothing has been sent to SignDocs at this point — the form is
+ * only hidden, so "Voltar" restores it with every field still filled in.
+ * Mirrors the Dropbox extension's "Confirmar envio" card.
+ */
+function renderConfirmStep(overlay, ctx, onConfirm) {
+	const { fileName, signers, mode, order } = ctx
+	const form = overlay.querySelector('form')
+	const confirm = overlay.querySelector('.signdocs-confirm')
+	const isSequential = order === 'sequential'
+	const isEnvelope = signers.length > 1
+
+	let inviteLead
+	if (!ownerEmail) {
+		// No owner on the request → the API emails nobody. Say so up front
+		// instead of letting the user think invites went out.
+		inviteLead = t(APP_ID, 'Seu perfil do Nextcloud não tem email, então nenhum convite será enviado automaticamente. Você receberá os links para compartilhar com cada signatário.')
+	} else if (isEnvelope) {
+		inviteLead = t(APP_ID, 'Convites por email serão enviados aos %n signatários abaixo.').replace('%n', String(signers.length))
+	} else {
+		inviteLead = t(APP_ID, 'O signatário receberá por email o link para assinar.')
+	}
+
+	const isOwnAddress = (email) => ownerEmail !== ''
+		&& String(email).toLowerCase() === ownerEmail.toLowerCase()
+
+	confirm.innerHTML = `
+		<h3>${t(APP_ID, 'Confirmar envio')}</h3>
+		<p class="signdocs-confirm-lead ${ownerEmail ? '' : 'signdocs-confirm-warning'}">
+			${escapeHtml(inviteLead)}
+		</p>
+
+		<dl class="signdocs-confirm-summary">
+			<dt>${t(APP_ID, 'Documento')}</dt>
+			<dd>${escapeHtml(fileName)}</dd>
+			<dt>${t(APP_ID, 'Tipo de assinatura')}</dt>
+			<dd class="signdocs-confirm-highlight">${escapeHtml(modeLabel(mode, fileName))}</dd>
+			<dt>${t(APP_ID, 'Ordem')}</dt>
+			<dd>${escapeHtml(orderLabel(order))}</dd>
+		</dl>
+
+
+		<div class="signdocs-confirm-signers">
+			<span class="signdocs-confirm-signers-title">
+				${isEnvelope
+					? t(APP_ID, 'Signatários (%n)').replace('%n', String(signers.length))
+					: t(APP_ID, 'Signatário')}
+			</span>
+			<ol class="signdocs-confirm-signer-list ${isSequential ? 'signdocs-numbered' : ''}">
+				${signers.map((s) => `
+					<li>
+						<span class="signdocs-confirm-signer-name">${escapeHtml(s.name)}</span>
+						<span class="signdocs-confirm-signer-email">${escapeHtml(s.email)}</span>
+						<span class="signdocs-confirm-signer-doc">
+							${s.cpf ? 'CPF' : 'CNPJ'} ${escapeHtml(formatCpfCnpj(s.cpf || s.cnpj))}
+						</span>
+						${isOwnAddress(s.email)
+							? `<span class="signdocs-confirm-signer-note">${t(APP_ID, 'Convite não enviado — é o seu próprio email. Use o link exibido após o envio.')}</span>`
+							: ''}
+					</li>
+				`).join('')}
+			</ol>
+			${isSequential
+				? `<p class="signdocs-sequential-hint">${t(APP_ID, 'Os signatários assinarão nesta ordem.')}</p>`
+				: ''}
+		</div>
+
+		<footer>
+			<button type="button" class="signdocs-confirm-back">← ${t(APP_ID, 'Voltar')}</button>
+			<button type="button" class="signdocs-confirm-send primary">${t(APP_ID, 'Confirmar e enviar')}</button>
+		</footer>
+	`
+
+	form.hidden = true
+	confirm.hidden = false
+
+	const sendBtn = confirm.querySelector('.signdocs-confirm-send')
+	const backBtn = confirm.querySelector('.signdocs-confirm-back')
+
+	backBtn.addEventListener('click', () => {
+		confirm.hidden = true
+		form.hidden = false
+	})
+
+	sendBtn.addEventListener('click', async () => {
+		sendBtn.disabled = true
+		backBtn.disabled = true
+		sendBtn.textContent = t(APP_ID, 'Enviando…')
+		try {
+			await onConfirm()
+		} catch (err) {
+			// Stay on the review step so the user can retry without
+			// re-typing every signer.
+			sendBtn.disabled = false
+			backBtn.disabled = false
+			sendBtn.textContent = t(APP_ID, 'Confirmar e enviar')
+			alert(t(APP_ID, 'Erro: ') + err.message)
+		}
+	})
+}
+
 function renderResult(overlay, data) {
 	const form = overlay.querySelector('form')
+	const confirm = overlay.querySelector('.signdocs-confirm')
 	const result = overlay.querySelector('.signdocs-result')
 	form.hidden = true
+	confirm.hidden = true
 	result.hidden = false
 	const links = data?.metadata?.shareLinks || []
 	result.innerHTML = `
@@ -241,9 +389,10 @@ function openSigningDialog(fileInfo) {
 
 				<footer>
 					<button type="button" class="signdocs-cancel">${t(APP_ID, 'Cancelar')}</button>
-					<button type="submit" class="primary">${t(APP_ID, 'Enviar para assinatura')}</button>
+					<button type="submit" class="primary">${t(APP_ID, 'Revisar e enviar')}</button>
 				</footer>
 			</form>
+			<div class="signdocs-confirm" hidden></div>
 			<div class="signdocs-result" hidden></div>
 		</div>
 	`
@@ -262,7 +411,6 @@ function openSigningDialog(fileInfo) {
 	const orderSelect = overlay.querySelector('select[name=order]')
 	const sequentialHint = overlay.querySelector('.signdocs-sequential-hint')
 	const orderLockedHint = overlay.querySelector('.signdocs-order-locked-hint')
-
 	// Remembers the user's chosen order BEFORE we force-flipped it to
 	// sequential on entering ICP mode. When they switch the mode dropdown
 	// back to a non-ICP option, we restore this value so they don't get
@@ -297,17 +445,10 @@ function openSigningDialog(fileInfo) {
 	orderSelect.addEventListener('change', updateSequentialMode)
 	updateSequentialMode()
 
-	overlay.querySelector('form').addEventListener('submit', async (ev) => {
-		ev.preventDefault()
-		const submitBtn = ev.target.querySelector('button[type=submit]')
-		submitBtn.disabled = true
-		submitBtn.textContent = t(APP_ID, 'Enviando…')
-
-		const restoreSubmit = () => {
-			submitBtn.disabled = false
-			submitBtn.textContent = t(APP_ID, 'Enviar para assinatura')
-		}
-
+	// Reads and validates the signer rows. Returns null (after alerting and
+	// focusing the offending field) when something is off, so the caller can
+	// keep the user on the form.
+	const collectSigners = () => {
 		const signers = []
 		const rowsArr = Array.from(signerList.querySelectorAll('.signdocs-signer-row'))
 		for (let idx = 0; idx < rowsArr.length; idx++) {
@@ -320,26 +461,23 @@ function openSigningDialog(fileInfo) {
 
 			const who = name || email
 			if (docDigits.length !== 11 && docDigits.length !== 14) {
-				restoreSubmit()
 				docInput.focus()
 				alert(t(APP_ID, 'CPF ou CNPJ inválido para %s. Digite 11 dígitos para CPF ou 14 para CNPJ.').replace('%s', who))
-				return
+				return null
 			}
 			const signer = { name, email }
 			if (docDigits.length === 11) {
 				if (!isValidCpf(docDigits)) {
-					restoreSubmit()
 					docInput.focus()
 					alert(t(APP_ID, 'CPF inválido para %s. Verifique os dígitos verificadores.').replace('%s', who))
-					return
+					return null
 				}
 				signer.cpf = docDigits
 			} else {
 				if (!isValidCnpj(docDigits)) {
-					restoreSubmit()
 					docInput.focus()
 					alert(t(APP_ID, 'CNPJ inválido para %s. Verifique os dígitos verificadores.').replace('%s', who))
-					return
+					return null
 				}
 				signer.cnpj = docDigits
 			}
@@ -347,41 +485,46 @@ function openSigningDialog(fileInfo) {
 		}
 
 		if (signers.length === 0) {
-			submitBtn.disabled = false
-			submitBtn.textContent = t(APP_ID, 'Enviar para assinatura')
 			alert(t(APP_ID, 'Adicione pelo menos um signatário com nome e email.'))
-			return
+			return null
 		}
+		return signers
+	}
 
-		const form = ev.target
-		const payload = {
-			fileId: Number(fileInfo.id),
-			signers,
-			options: {
-				mode: form.mode.value,
-				order: form.order.value,
+	const sendForSignature = async (signers, options) => {
+		const response = await fetch(generateUrl('/apps/' + APP_ID + '/api/v1/sessions'), {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				'requesttoken': window.OC?.requestToken || '',
 			},
+			body: JSON.stringify({
+				fileId: Number(fileInfo.id),
+				signers,
+				options,
+			}),
+		})
+		const data = await response.json()
+		if (!response.ok) {
+			throw new Error(data?.message || 'Falha ao criar sessão de assinatura')
 		}
+		renderResult(overlay, data)
+	}
 
-		try {
-			const response = await fetch(generateUrl('/apps/' + APP_ID + '/api/v1/sessions'), {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'requesttoken': window.OC?.requestToken || '',
-				},
-				body: JSON.stringify(payload),
-			})
-			const data = await response.json()
-			if (!response.ok) {
-				throw new Error(data?.message || 'Falha ao criar sessão de assinatura')
-			}
-			renderResult(overlay, data)
-		} catch (err) {
-			submitBtn.disabled = false
-			submitBtn.textContent = t(APP_ID, 'Enviar para assinatura')
-			alert(t(APP_ID, 'Erro: ') + err.message)
-		}
+	// Submitting the form no longer sends anything — it only advances to the
+	// review step, which is where the actual POST is confirmed.
+	overlay.querySelector('form').addEventListener('submit', (ev) => {
+		ev.preventDefault()
+		const signers = collectSigners()
+		if (signers === null) return
+
+		const options = { mode: modeSelect.value, order: orderSelect.value }
+
+		renderConfirmStep(
+			overlay,
+			{ fileName: fileInfo.name, signers, mode: options.mode, order: options.order },
+			() => sendForSignature(signers, options),
+		)
 	})
 }
 
@@ -416,3 +559,8 @@ window.addEventListener('signdocs:open-dialog', (event) => {
 	if (!id || !name) return
 	openSigningDialog({ id, name, mime })
 })
+
+// Consumed only by the jsdom suite in tests/js, which bundles this file to
+// CommonJS. esbuild drops exports from the IIFE production build, so
+// js/signdocs-files-action.js is byte-for-byte unaffected by this line.
+export { openSigningDialog, formatCpfCnpj, modeLabel, orderLabel }

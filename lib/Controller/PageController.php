@@ -9,6 +9,7 @@ use OCP\AppFramework\Controller;
 use OCP\AppFramework\Http\TemplateResponse;
 use OCP\AppFramework\Services\IInitialState;
 use OCP\IRequest;
+use OCP\IUserSession;
 
 /**
  * Top-level navigation entry. Renders the "Request signature" landing page
@@ -22,6 +23,7 @@ class PageController extends Controller {
 	public function __construct(
 		IRequest $request,
 		private readonly IInitialState $initialState,
+		private readonly IUserSession $userSession,
 	) {
 		parent::__construct(Application::APP_ID, $request);
 	}
@@ -40,6 +42,9 @@ class PageController extends Controller {
 				'application/msword',
 			],
 			'maxUploadSize' => 50 * 1024 * 1024, // 50MB — surfaced in the UI
+			// Same address the signing dialog reads on the Files surface; the
+			// dialog is shared, so it must be reachable from here too.
+			'userEmail' => $this->userSession->getUser()?->getEMailAddress() ?? '',
 		]);
 
 		return new TemplateResponse(Application::APP_ID, 'page/index');
