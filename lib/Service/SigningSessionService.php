@@ -411,7 +411,7 @@ class SigningSessionService {
 		// object exists, so a click-signed .docx still comes back with a
 		// signatureUrl that 404s on GET.
 		if ($format === 'generic' && $mode !== null && !self::isDigitalCertificateMode($mode)) {
-			$this->markNoSignedArtifact($entity, $meta, 'signed without a digital certificate', $mode);
+			$this->markNoSignedArtifact($entity, 'signed without a digital certificate', $mode);
 			return;
 		}
 
@@ -431,7 +431,7 @@ class SigningSessionService {
 		if ($format === 'generic' && $mode === null) {
 			$attempts = (int)($meta['artifactAttempts'] ?? 0) + 1;
 			if ($attempts >= self::MAX_ARTIFACT_ATTEMPTS) {
-				$this->markNoSignedArtifact($entity, $meta, 'no artifact after ' . $attempts . ' attempts', $mode);
+				$this->markNoSignedArtifact($entity, 'no artifact after ' . $attempts . ' attempts', $mode);
 				return;
 			}
 			$meta['artifactAttempts'] = $attempts;
@@ -446,14 +446,17 @@ class SigningSessionService {
 
 	/**
 	 * Flag a completed session as having no signed artifact so the fetch job
-	 * stops spending an API call on it every run. Deliberately does not touch
+	 * stops spending an API call on it every run. Public because the job also
+	 * calls it directly when the API answers 404 — a definitive "never". Deliberately does not touch
 	 * signed_file_id: there is no file, and the status badge stays "assinado"
 	 * because the signature itself is valid and evidenced — only the signed
 	 * *document* is missing.
 	 *
-	 * @param array<string, mixed> $meta
 	 */
-	private function markNoSignedArtifact(SigningSession $entity, array $meta, string $reason, ?string $mode): void {
+	public function markNoSignedArtifact(SigningSession $entity, string $reason, ?string $mode = null): void {
+		$meta = json_decode((string)$entity->getMetadata(), true);
+		$meta = is_array($meta) ? $meta : [];
+
 		$this->logger->info('No signed artifact to save back for this session', [
 			'sessionId' => $entity->getSessionId(),
 			'reason' => $reason,

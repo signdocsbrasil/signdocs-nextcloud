@@ -9,6 +9,7 @@ use OCA\SignDocsBrasil\Service\SigningSessionService;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
 use Psr\Log\LoggerInterface;
+use SignDocsBrasil\Api\Errors\NotFoundException as ApiNotFoundException;
 
 /**
  * Fetches the signed / combined PDF for completed sessions and saves it into
@@ -42,6 +43,17 @@ class FetchSignedDocuments extends TimedJob {
 		foreach ($pending as $entity) {
 			try {
 				$this->sessionService->saveSignedDocument($entity);
+			} catch (ApiNotFoundException $e) {
+				// Same reasoning as PollPendingSessions: a 404 means the
+				// transaction is gone upstream, so no future run can retrieve
+				// the artifact. Settle the row instead of re-asking every run.
+				$this->sessionService->markNoSignedArtifact(
+					$entity,
+					'transaction no longer exists upstream',
+				);
+				$this->logger->info('Signed document no longer retrievable; stopped polling for it', [
+					'sessionId' => $entity->getSessionId(),
+				]);
 			} catch (\Throwable $e) {
 				// Transient failures (artifact not ready, network) are retried
 				// on the next run; log and move on so one bad row can't stall

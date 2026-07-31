@@ -11,7 +11,7 @@ use OCA\SignDocsBrasil\Service\SigningSessionService;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
 use Psr\Log\LoggerInterface;
-use SignDocsBrasil\Api\SignDocsBrasilClient;
+use SignDocsBrasil\Api\Errors\NotFoundException as ApiNotFoundException;
 
 /**
  * Reconciles pending signing sessions on a timer.
@@ -46,15 +46,30 @@ class PollPendingSessions extends TimedJob {
 
 		foreach ($pending as $entity) {
 			try {
-				$client = $this->clientFactory->forUser($entity->getUserId());
-				$status = $this->fetchStatus($client, $entity);
+				$status = $this->fetchStatus($entity);
 				if ($status !== $entity->getStatus()) {
 					$this->sessionService->applyStatusUpdate(
 						$entity->getSessionId(),
 						$status,
 					);
 				}
+			} catch (ApiNotFoundException $e) {
+				// A 404 is a terminal answer, not a failure to get one: the
+				// session or envelope no longer exists upstream — typically aged
+				// out past its TTL. Polling again cannot change that, so settle
+				// the row locally instead of asking forever.
+				//
+				// Without this the row stays pending and is re-polled every run,
+				// for the life of the instance. At this job's cadence that is
+				// ~288 wasted requests per day per stuck row, and it never stops
+				// on its own.
+				$this->sessionService->applyStatusUpdate($entity->getSessionId(), 'expired');
+				$this->logger->info('Signing session no longer exists upstream; marked expired', [
+					'sessionId' => $entity->getSessionId(),
+				]);
 			} catch (\Throwable $e) {
+				// Anything else — network, auth, 5xx — may well succeed next
+				// time, so leave the row pending and retry.
 				$this->logger->warning('Failed to poll SignDocs session', [
 					'sessionId' => $entity->getSessionId(),
 					'exception' => $e,
@@ -70,12 +85,14 @@ class PollPendingSessions extends TimedJob {
 	 * poller is the reconciliation fallback for firewalled instances on both the
 	 * single-signer and the multi-signer path.
 	 */
-	private function fetchStatus(SignDocsBrasilClient $client, SigningSession $entity): string {
+	private function fetchStatus(SigningSession $entity): string {
 		$meta = json_decode((string)$entity->getMetadata(), true);
 		$kind = is_array($meta) ? ($meta['kind'] ?? 'session') : 'session';
+		$userId = $entity->getUserId();
+
 		if ($kind === 'envelope') {
-			return $client->envelopes->get($entity->getSessionId())->status;
+			return $this->clientFactory->envelopesFor($userId)->get($entity->getSessionId())->status;
 		}
-		return $client->signingSessions->getStatus($entity->getSessionId())->status;
+		return $this->clientFactory->signingSessionsFor($userId)->getStatus($entity->getSessionId())->status;
 	}
 }
