@@ -100,7 +100,9 @@ OC.L10N.register(
 		"Cancelando…": "Cancelando…",
 		"Solicitação cancelada.": "Solicitação cancelada.",
 		"%n assinatura(s) já coletada(s) foram preservadas.": "%n assinatura(s) já coletada(s) foram preservadas.",
-		"Não foi possível cancelar: ": "Não foi possível cancelar: "
+		"Não foi possível cancelar: ": "Não foi possível cancelar: ",
+		"Status da assinatura": "Status da assinatura",
+		"Nenhuma solicitação de assinatura para este documento.": "Nenhuma solicitação de assinatura para este documento."
 	},
 	"nplurals=2; plural=(n > 1);"
 );

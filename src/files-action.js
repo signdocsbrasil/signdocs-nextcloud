@@ -13,6 +13,11 @@ import { FileAction, registerFileAction, Permission } from '@nextcloud/files'
 import { loadState } from '@nextcloud/initial-state'
 import { translate as t } from '@nextcloud/l10n'
 import { generateUrl } from '@nextcloud/router'
+import {
+	escapeHtml,
+	fetchRequestsForFile,
+	renderRequests,
+} from './signing-requests'
 
 const APP_ID = 'signdocs_brasil'
 
@@ -41,17 +46,17 @@ const landingState = loadState(APP_ID, 'signdocs_landing', {})
 // what will actually happen rather than promising invites we know won't go out.
 const ownerEmail = String(initialState.userEmail || landingState.userEmail || '').trim()
 
+const STATUS_ICON = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+	<path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+</svg>
+`.trim()
+
 const SIGN_ICON = `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
 	<path fill="currentColor" d="M3 17v3h3l11-11-3-3L3 17zm17.7-11.3a1 1 0 0 0 0-1.4l-2-2a1 1 0 0 0-1.4 0l-2 2 3.4 3.4 2-2z"/>
 </svg>
 `.trim()
-
-function escapeHtml(s) {
-	return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-		'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-	}[c]))
-}
 
 // CPF / CNPJ check-digit validation. Mirrors lib/Service/CpfCnpjValidator.php
 // so the front-end gives instant feedback without a round-trip, while the
@@ -585,6 +590,79 @@ const action = new FileAction({
 
 registerFileAction(action)
 
+/**
+ * Per-document status panel: what has been sent for this file, and a way to
+ * stop anything still in flight. Opened from the Files context menu, which is
+ * where users are when they wonder about a document — the landing page list
+ * covers every request, this one covers the one in front of them.
+ */
+function openStatusDialog(fileInfo) {
+	const overlay = document.createElement('div')
+	overlay.className = 'signdocs-overlay'
+	overlay.innerHTML = `
+		<div class="signdocs-dialog" role="dialog" aria-labelledby="sdb-status-title">
+			<header>
+				<h2 id="sdb-status-title">${t(APP_ID, 'Status da assinatura')}</h2>
+				<button class="signdocs-close" type="button" aria-label="${t(APP_ID, 'Fechar')}">×</button>
+			</header>
+			<div class="signdocs-status-body">
+				<p class="signdocs-file-name">${escapeHtml(fileInfo.name)}</p>
+				<div class="signdocs-status-message"></div>
+				<ul class="signdocs-requests-list"></ul>
+			</div>
+		</div>
+	`
+	document.body.appendChild(overlay)
+	overlay.querySelector('.signdocs-close').addEventListener('click', () => overlay.remove())
+
+	const list = overlay.querySelector('.signdocs-requests-list')
+	const message = overlay.querySelector('.signdocs-status-message')
+	const setMessage = (text, kind = 'info') => {
+		message.textContent = text ?? ''
+		message.dataset.kind = kind
+		message.hidden = !text
+	}
+
+	const reload = async () => {
+		let rows
+		try {
+			rows = await fetchRequestsForFile(fileInfo.id)
+		} catch (err) {
+			setMessage(t(APP_ID, 'Não foi possível carregar suas solicitações.'), 'error')
+			return
+		}
+		if (!Array.isArray(rows) || rows.length === 0) {
+			list.innerHTML = ''
+			setMessage(t(APP_ID, 'Nenhuma solicitação de assinatura para este documento.'))
+			return
+		}
+		setMessage('')
+		// The dialog header already names the file, so don't repeat it per row.
+		renderRequests(list, rows, { onReload: reload, onMessage: setMessage, showName: false })
+	}
+
+	reload()
+}
+
+const statusAction = new FileAction({
+	id: 'signdocs-status',
+	displayName: () => t(APP_ID, 'Status da assinatura'),
+	iconSvgInline: () => STATUS_ICON,
+	enabled: (nodes) => {
+		if (nodes.length !== 1) return false
+		const mime = nodes[0].mime
+		if (!mime || !supportedMimeTypes.has(mime)) return false
+		return (nodes[0].permissions & Permission.READ) !== 0
+	},
+	async exec(node) {
+		openStatusDialog({ id: node.fileid, name: node.basename })
+		return null
+	},
+	order: 51,
+})
+
+registerFileAction(statusAction)
+
 // Allow the top-nav landing page (and any future entry surface) to drive
 // the same dialog without going through the Files app's right-click menu.
 // Dispatching a `signdocs:open-dialog` CustomEvent with `{detail: {id, name,
@@ -598,4 +676,4 @@ window.addEventListener('signdocs:open-dialog', (event) => {
 // Consumed only by the jsdom suite in tests/js, which bundles this file to
 // CommonJS. esbuild drops exports from the IIFE production build, so
 // js/signdocs-files-action.js is byte-for-byte unaffected by this line.
-export { openSigningDialog, formatCpfCnpj, modeLabel, orderLabel }
+export { openSigningDialog, openStatusDialog, formatCpfCnpj, modeLabel, orderLabel }

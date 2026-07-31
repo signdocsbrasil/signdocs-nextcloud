@@ -15,6 +15,18 @@ style('signdocs_brasil', 'signdocs-landing-page');
 	</header>
 
 	<main class="signdocs-landing-main">
+		<!-- Populated by landing-page.js from GET /api/v1/sessions. Hidden
+		     until there is something to show, so a fresh install stays clean. -->
+		<section class="signdocs-requests" hidden>
+			<header class="signdocs-requests-header">
+				<h2><?php p($l->t('Suas solicitações de assinatura')); ?></h2>
+				<button type="button" class="signdocs-requests-refresh">
+					<?php p($l->t('Atualizar')); ?>
+				</button>
+			</header>
+			<ul class="signdocs-requests-list"></ul>
+		</section>
+
 		<div class="signdocs-landing-actions">
 			<button type="button" class="signdocs-landing-button" data-action="pick-from-files">
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32">
@@ -52,16 +64,5 @@ style('signdocs_brasil', 'signdocs-landing-page');
 
 		<div class="signdocs-landing-status" hidden></div>
 
-		<!-- Populated by landing-page.js from GET /api/v1/sessions. Hidden
-		     until there is something to show, so a fresh install stays clean. -->
-		<section class="signdocs-requests" hidden>
-			<header class="signdocs-requests-header">
-				<h2><?php p($l->t('Suas solicitações de assinatura')); ?></h2>
-				<button type="button" class="signdocs-requests-refresh">
-					<?php p($l->t('Atualizar')); ?>
-				</button>
-			</header>
-			<ul class="signdocs-requests-list"></ul>
-		</section>
 	</main>
 </div>

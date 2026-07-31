@@ -15,6 +15,7 @@
 import { loadState } from '@nextcloud/initial-state'
 import { generateUrl } from '@nextcloud/router'
 import { translate as t } from '@nextcloud/l10n'
+import { fetchRequests, renderRequests } from './signing-requests'
 
 const APP_ID = 'signdocs_brasil'
 
@@ -191,27 +192,8 @@ document.querySelectorAll('.signdocs-landing-button').forEach((btn) => {
 // ─── Signature requests: list + cancel ──────────────────────────────────
 //
 // The only place in the UI where an in-flight request can be seen and stopped.
-// Everything else creates requests; without this, a send is irreversible from
-// the GUI.
-
-function escapeHtml(s) {
-	return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-		'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-	}[c]))
-}
-
-function statusLabel(status) {
-	if (status === 'completed') return t(APP_ID, 'Assinado')
-	if (status === 'cancelled') return t(APP_ID, 'Cancelado')
-	if (status === 'expired') return t(APP_ID, 'Expirado')
-	if (status === 'failed') return t(APP_ID, 'Falhou')
-	return t(APP_ID, 'Pendente')
-}
-
-function formatDate(seconds) {
-	if (!seconds) return ''
-	return new Date(Number(seconds) * 1000).toLocaleString()
-}
+// Rendering and cancellation live in signing-requests.js so this page and the
+// Files action share one implementation.
 
 async function loadRequests() {
 	const section = document.querySelector('.signdocs-requests')
@@ -220,13 +202,9 @@ async function loadRequests() {
 
 	let rows
 	try {
-		const response = await fetch(generateUrl(state.apiBase + '/sessions'), {
-			headers: { 'requesttoken': window.OC?.requestToken || '' },
-		})
-		if (!response.ok) throw new Error(String(response.status))
-		rows = await response.json()
+		rows = await fetchRequests()
 	} catch (err) {
-		// A failed list must not blank the section if it's already showing.
+		// A failed refresh must not blank a list that is already showing.
 		if (section.hidden) return
 		setStatus(t(APP_ID, 'Não foi possível carregar suas solicitações.'), 'error')
 		return
@@ -239,92 +217,10 @@ async function loadRequests() {
 	}
 
 	section.hidden = false
-	list.innerHTML = rows.map((row) => {
-		const name = row.fileName || t(APP_ID, 'documento removido')
-		const signers = row.signerCount > 1
-			? t(APP_ID, '%n signatários').replace('%n', String(row.signerCount))
-			: t(APP_ID, '1 signatário')
-		return `
-			<li class="signdocs-request" data-session-id="${escapeHtml(row.sessionId)}">
-				<div class="signdocs-request-main">
-					<span class="signdocs-request-name">${escapeHtml(name)}</span>
-					<span class="signdocs-request-meta">
-						${escapeHtml(signers)} · ${escapeHtml(formatDate(row.createdAt))}
-					</span>
-				</div>
-				<span class="signdocs-request-status" data-status="${escapeHtml(row.status)}">
-					${escapeHtml(statusLabel(row.status))}
-				</span>
-				<div class="signdocs-request-actions">
-					${row.cancellable
-						? `<button type="button" class="signdocs-request-cancel">${t(APP_ID, 'Cancelar')}</button>`
-						: ''}
-				</div>
-			</li>
-		`
-	}).join('')
-
-	list.querySelectorAll('.signdocs-request-cancel').forEach((btn) => {
-		btn.addEventListener('click', () => confirmCancel(btn.closest('.signdocs-request')))
+	renderRequests(list, rows, {
+		onReload: loadRequests,
+		onMessage: (message, kind) => setStatus(message, kind),
 	})
-}
-
-/**
- * Cancelling kills every pending signing link, so ask first — inline, in the
- * row, rather than a browser confirm() that says nothing about what survives.
- */
-function confirmCancel(row) {
-	if (!row || row.querySelector('.signdocs-request-confirm')) return
-	const actions = row.querySelector('.signdocs-request-actions')
-	actions.innerHTML = `
-		<span class="signdocs-request-confirm">
-			<span class="signdocs-request-confirm-text">
-				${t(APP_ID, 'Cancelar? Os signatários pendentes não poderão mais assinar. Assinaturas já coletadas são preservadas.')}
-			</span>
-			<button type="button" class="signdocs-request-confirm-yes">${t(APP_ID, 'Confirmar')}</button>
-			<button type="button" class="signdocs-request-confirm-no">${t(APP_ID, 'Voltar')}</button>
-		</span>
-	`
-	actions.querySelector('.signdocs-request-confirm-no')
-		.addEventListener('click', () => loadRequests())
-	actions.querySelector('.signdocs-request-confirm-yes')
-		.addEventListener('click', (ev) => cancelRequest(row, ev.target))
-}
-
-async function cancelRequest(row, button) {
-	const sessionId = row.getAttribute('data-session-id')
-	button.disabled = true
-	button.textContent = t(APP_ID, 'Cancelando…')
-
-	try {
-		const response = await fetch(
-			generateUrl(state.apiBase + '/sessions/' + encodeURIComponent(sessionId) + '/cancel'),
-			{
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'requesttoken': window.OC?.requestToken || '',
-				},
-			},
-		)
-		const data = await response.json()
-		if (!response.ok) {
-			throw new Error(data?.message || data?.error || String(response.status))
-		}
-
-		// Report what actually happened: cancelling stops pending signers but
-		// never invalidates signatures already collected.
-		let message = t(APP_ID, 'Solicitação cancelada.')
-		if (data.preservedSignedCount > 0) {
-			message += ' ' + t(APP_ID, '%n assinatura(s) já coletada(s) foram preservadas.')
-				.replace('%n', String(data.preservedSignedCount))
-		}
-		setStatus(message, 'info')
-	} catch (err) {
-		setStatus(t(APP_ID, 'Não foi possível cancelar: ') + err.message, 'error')
-	}
-
-	await loadRequests()
 }
 
 document.querySelector('.signdocs-requests-refresh')?.addEventListener('click', () => loadRequests())

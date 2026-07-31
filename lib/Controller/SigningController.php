@@ -114,12 +114,23 @@ class SigningController extends Controller {
 	 */
 	public function listForFile(int $fileId): DataResponse {
 		$entities = $this->mapper->findByFile($fileId);
-		return new DataResponse(array_map(static fn ($e) => [
-			'sessionId' => $e->getSessionId(),
-			'status' => $e->getStatus(),
-			'createdAt' => $e->getCreatedAt(),
-			'updatedAt' => $e->getUpdatedAt(),
-		], $entities));
+
+		// Same shape as listForUser minus the file name, which the caller
+		// already knows — the per-file status panel renders straight from this.
+		return new DataResponse(array_map(static function ($e) {
+			$meta = json_decode((string)$e->getMetadata(), true);
+			$meta = is_array($meta) ? $meta : [];
+			return [
+				'sessionId' => $e->getSessionId(),
+				'status' => $e->getStatus(),
+				'kind' => $meta['kind'] ?? 'session',
+				'signerCount' => count($meta['shareLinks'] ?? $meta['signers'] ?? []),
+				'createdAt' => $e->getCreatedAt(),
+				'updatedAt' => $e->getUpdatedAt(),
+				'signedFileId' => $e->getSignedFileId(),
+				'cancellable' => !in_array($e->getStatus(), ['completed', 'cancelled'], true),
+			];
+		}, $entities));
 	}
 
 	/**

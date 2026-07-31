@@ -108,6 +108,11 @@ function loadDialog({ userEmail } = {}) {
 		fails(message) {
 			return () => Promise.resolve({ ok: false, json: () => Promise.resolve({ message }) })
 		},
+		/** Open the per-document status panel. */
+		openStatusDialog(fileInfo) {
+			dom.window.document.querySelectorAll('.signdocs-overlay').forEach((o) => o.remove())
+			return mod.openStatusDialog(fileInfo)
+		},
 		/** Open the dialog for a file, discarding any previously open one. */
 		openDialog(fileInfo = { id: 42, name: 'contrato.pdf', mime: 'application/pdf' }) {
 			dom.window.document.querySelectorAll('.signdocs-overlay').forEach((o) => o.remove())
