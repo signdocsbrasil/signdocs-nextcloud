@@ -2,6 +2,7 @@
 /composer/
 /.phpunit.cache/
 /.phpcs.cache
+/.php-cs-fixer.cache
 /.phpstan.cache
 /phpunit.result.cache
 composer.phar
