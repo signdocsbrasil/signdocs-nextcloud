@@ -100,3 +100,58 @@
 	border-left-color: var(--color-error, #c00);
 	color: var(--color-error, #800);
 }
+
+/* ── Views: entry points vs request list ─────────────────────────────── */
+
+.signdocs-view[hidden] {
+	display: none;
+}
+
+.signdocs-requests-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.signdocs-requests-header h2 {
+	margin: 0;
+	font-size: 16px;
+	flex: 1 1 auto;
+}
+
+.signdocs-requests-back,
+.signdocs-requests-refresh {
+	background: none;
+	border: 1px solid var(--color-border-dark, #ccc);
+	border-radius: 4px;
+	padding: 4px 12px;
+	font-size: 13px;
+	cursor: pointer;
+	flex: 0 0 auto;
+}
+
+.signdocs-requests-back:hover,
+.signdocs-requests-refresh:hover {
+	background: var(--color-background-hover, #f0f0f0);
+}
+
+.signdocs-requests-empty {
+	margin: 16px 0 0;
+	color: var(--color-text-maxcontrast, #777);
+	font-size: 13px;
+}
+
+.signdocs-requests-empty[hidden] {
+	display: none;
+}
+
+/* The list can grow without bound, so cap it and scroll rather than pushing
+ * the page — the header and its controls stay put while scrolling. */
+.signdocs-requests-scroll {
+	margin-top: 8px;
+	max-height: 55vh;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}

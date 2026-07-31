@@ -9,25 +9,18 @@ style('signdocs_brasil', 'signdocs-landing-page');
 <div id="signdocs-app">
 	<header class="signdocs-landing-header">
 		<h1><?php p($l->t('Solicitar assinaturas')); ?></h1>
-		<p class="signdocs-landing-subtitle">
-			<?php p($l->t('Escolha como enviar o documento para assinatura.')); ?>
-		</p>
 	</header>
 
 	<main class="signdocs-landing-main">
-		<!-- Populated by landing-page.js from GET /api/v1/sessions. Hidden
-		     until there is something to show, so a fresh install stays clean. -->
-		<section class="signdocs-requests" hidden>
-			<header class="signdocs-requests-header">
-				<h2><?php p($l->t('Suas solicitações de assinatura')); ?></h2>
-				<button type="button" class="signdocs-requests-refresh">
-					<?php p($l->t('Atualizar')); ?>
-				</button>
-			</header>
-			<ul class="signdocs-requests-list"></ul>
-		</section>
 
-		<div class="signdocs-landing-actions">
+		<!-- Two views: the four entry points, and the request list. Only one is
+		     ever visible; landing-page.js swaps them. -->
+		<div class="signdocs-view" data-view="home">
+			<p class="signdocs-landing-subtitle">
+				<?php p($l->t('Escolha como enviar o documento para assinatura.')); ?>
+			</p>
+
+			<div class="signdocs-landing-actions">
 			<button type="button" class="signdocs-landing-button" data-action="pick-from-files">
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32">
 					<path fill="currentColor" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
@@ -56,7 +49,36 @@ style('signdocs_brasil', 'signdocs-landing-page');
 					<?php p($l->t('Buscar de uma URL')); ?>
 				</span>
 				<small><?php p($l->t('Link público para um arquivo')); ?></small>
-			</button>
+				</button>
+
+				<button type="button" class="signdocs-landing-button" data-action="show-requests">
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32">
+						<path fill="currentColor" d="M3 5h18v2H3V5zm0 6h18v2H3v-2zm0 6h12v2H3v-2z"/>
+					</svg>
+					<span class="signdocs-landing-button-label">
+						<?php p($l->t('Suas solicitações de assinatura')); ?>
+					</span>
+					<small><?php p($l->t('Acompanhar status e cancelar')); ?></small>
+				</button>
+			</div>
+		</div>
+
+		<div class="signdocs-view" data-view="requests" hidden>
+			<header class="signdocs-requests-header">
+				<button type="button" class="signdocs-requests-back">
+					&larr; <?php p($l->t('Voltar')); ?>
+				</button>
+				<h2><?php p($l->t('Suas solicitações de assinatura')); ?></h2>
+				<button type="button" class="signdocs-requests-refresh">
+					<?php p($l->t('Atualizar')); ?>
+				</button>
+			</header>
+			<p class="signdocs-requests-empty" hidden>
+				<?php p($l->t('Você ainda não enviou nenhum documento para assinatura.')); ?>
+			</p>
+			<div class="signdocs-requests-scroll">
+				<ul class="signdocs-requests-list"></ul>
+			</div>
 		</div>
 
 		<input type="file" id="signdocs-landing-file-input" hidden

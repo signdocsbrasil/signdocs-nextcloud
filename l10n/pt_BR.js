@@ -102,7 +102,10 @@ OC.L10N.register(
 		"%n assinatura(s) já coletada(s) foram preservadas.": "%n assinatura(s) já coletada(s) foram preservadas.",
 		"Não foi possível cancelar: ": "Não foi possível cancelar: ",
 		"Status da assinatura": "Status da assinatura",
-		"Nenhuma solicitação de assinatura para este documento.": "Nenhuma solicitação de assinatura para este documento."
+		"Nenhuma solicitação de assinatura para este documento.": "Nenhuma solicitação de assinatura para este documento.",
+		"Acompanhar status e cancelar": "Acompanhar status e cancelar",
+		"Você ainda não enviou nenhum documento para assinatura.": "Você ainda não enviou nenhum documento para assinatura.",
+		"Tentar novamente": "Tentar novamente"
 	},
 	"nplurals=2; plural=(n > 1);"
 );

@@ -186,37 +186,49 @@ document.querySelectorAll('.signdocs-landing-button').forEach((btn) => {
 		if (action === 'pick-from-files') pickFromFiles()
 		else if (action === 'upload-local') uploadLocal()
 		else if (action === 'upload-from-url') uploadFromUrl()
+		else if (action === 'show-requests') {
+			showView('requests')
+			loadRequests()
+		}
 	})
 })
 
-// ─── Signature requests: list + cancel ──────────────────────────────────
+// ─── Signature requests: its own view ───────────────────────────────────
 //
-// The only place in the UI where an in-flight request can be seen and stopped.
+// A fourth entry point on the home screen opens the list; a back button
+// returns. Keeping it off the home screen stops the creation flow from being
+// pushed below the fold once a user has a few requests.
+//
 // Rendering and cancellation live in signing-requests.js so this page and the
-// Files action share one implementation.
+// Files status panel share one implementation.
+
+function showView(name) {
+	document.querySelectorAll('.signdocs-view').forEach((view) => {
+		view.hidden = view.getAttribute('data-view') !== name
+	})
+	setStatus('')
+}
 
 async function loadRequests() {
-	const section = document.querySelector('.signdocs-requests')
 	const list = document.querySelector('.signdocs-requests-list')
-	if (!section || !list) return
+	const empty = document.querySelector('.signdocs-requests-empty')
+	if (!list) return
 
 	let rows
 	try {
 		rows = await fetchRequests()
 	} catch (err) {
-		// A failed refresh must not blank a list that is already showing.
-		if (section.hidden) return
 		setStatus(t(APP_ID, 'Não foi possível carregar suas solicitações.'), 'error')
 		return
 	}
 
-	if (!Array.isArray(rows) || rows.length === 0) {
-		section.hidden = true
+	const hasRows = Array.isArray(rows) && rows.length > 0
+	if (empty) empty.hidden = hasRows
+	if (!hasRows) {
 		list.innerHTML = ''
 		return
 	}
 
-	section.hidden = false
 	renderRequests(list, rows, {
 		onReload: loadRequests,
 		onMessage: (message, kind) => setStatus(message, kind),
@@ -224,9 +236,8 @@ async function loadRequests() {
 }
 
 document.querySelector('.signdocs-requests-refresh')?.addEventListener('click', () => loadRequests())
+document.querySelector('.signdocs-requests-back')?.addEventListener('click', () => showView('home'))
 
 // Refresh after the signing dialog reports a successful send, so a new request
-// shows up without a page reload.
+// is already there when the user goes looking for it.
 window.addEventListener('signdocs:session-created', () => loadRequests())
-
-loadRequests()

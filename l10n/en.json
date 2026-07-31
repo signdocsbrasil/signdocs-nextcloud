@@ -101,7 +101,10 @@
 		"%n assinatura(s) já coletada(s) foram preservadas.": "%n signature(s) already collected were preserved.",
 		"Não foi possível cancelar: ": "Could not cancel: ",
 		"Status da assinatura": "Signature status",
-		"Nenhuma solicitação de assinatura para este documento.": "No signature requests for this document."
+		"Nenhuma solicitação de assinatura para este documento.": "No signature requests for this document.",
+		"Acompanhar status e cancelar": "Track status and cancel",
+		"Você ainda não enviou nenhum documento para assinatura.": "You have not sent any document for signature yet.",
+		"Tentar novamente": "Try again"
 	},
 	"pluralForm": "nplurals=2; plural=(n != 1);"
 }

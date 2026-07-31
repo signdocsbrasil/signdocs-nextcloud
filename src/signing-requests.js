@@ -146,9 +146,30 @@ export async function cancelRequest(row, button, { onReload, onMessage }) {
 				.replace('%n', String(data.preservedSignedCount))
 		}
 		onMessage(message, 'info')
+		await onReload()
 	} catch (err) {
+		// Report failure *in the row*. A page-level message is easy to miss —
+		// it can be scrolled far from the button that was just pressed — and the
+		// row silently staying "Pendente" reads as the click having done nothing.
+		// The upstream call can fail transiently (an API token timeout does it),
+		// so leave a retry rather than forcing a full reload.
+		showRowError(row, err.message, { onReload, onMessage })
 		onMessage(t(APP_ID, 'Não foi possível cancelar: ') + err.message, 'error')
 	}
+}
 
-	await onReload()
+/** Inline failure state with a retry, replacing the row's action area. */
+function showRowError(row, detail, handlers) {
+	const actions = row.querySelector('.signdocs-request-actions')
+	actions.innerHTML = `
+		<span class="signdocs-request-error">
+			<span class="signdocs-request-error-text">
+				${escapeHtml(t(APP_ID, 'Não foi possível cancelar: ') + detail)}
+			</span>
+			<button type="button" class="signdocs-request-retry">${t(APP_ID, 'Tentar novamente')}</button>
+		</span>
+	`
+	actions.querySelector('.signdocs-request-retry').addEventListener('click', (ev) => {
+		cancelRequest(row, ev.target, handlers)
+	})
 }

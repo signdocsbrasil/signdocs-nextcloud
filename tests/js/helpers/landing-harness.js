@@ -17,20 +17,27 @@ const APP_ID = 'signdocs_brasil'
 const MARKUP = `
 <div id="signdocs-app">
   <main class="signdocs-landing-main">
-    <div class="signdocs-landing-actions">
-      <button type="button" class="signdocs-landing-button" data-action="pick-from-files"></button>
-      <button type="button" class="signdocs-landing-button" data-action="upload-local"></button>
-      <button type="button" class="signdocs-landing-button" data-action="upload-from-url"></button>
+    <div class="signdocs-view" data-view="home">
+      <div class="signdocs-landing-actions">
+        <button type="button" class="signdocs-landing-button" data-action="pick-from-files"></button>
+        <button type="button" class="signdocs-landing-button" data-action="upload-local"></button>
+        <button type="button" class="signdocs-landing-button" data-action="upload-from-url"></button>
+        <button type="button" class="signdocs-landing-button" data-action="show-requests"></button>
+      </div>
     </div>
-    <input type="file" id="signdocs-landing-file-input" hidden />
-    <div class="signdocs-landing-status" hidden></div>
-    <section class="signdocs-requests" hidden>
+    <div class="signdocs-view" data-view="requests" hidden>
       <header class="signdocs-requests-header">
+        <button type="button" class="signdocs-requests-back">Voltar</button>
         <h2>Suas solicitações de assinatura</h2>
         <button type="button" class="signdocs-requests-refresh">Atualizar</button>
       </header>
-      <ul class="signdocs-requests-list"></ul>
-    </section>
+      <p class="signdocs-requests-empty" hidden>Você ainda não enviou nenhum documento para assinatura.</p>
+      <div class="signdocs-requests-scroll">
+        <ul class="signdocs-requests-list"></ul>
+      </div>
+    </div>
+    <input type="file" id="signdocs-landing-file-input" hidden />
+    <div class="signdocs-landing-status" hidden></div>
   </main>
 </div>
 `
@@ -94,7 +101,9 @@ function loadLanding({ responses = [] } = {}) {
 		enqueue(...items) {
 			queue.push(...items)
 		},
-		section: () => $('.signdocs-requests'),
+		view: (name) => $(`.signdocs-view[data-view="${name}"]`),
+		empty: () => $('.signdocs-requests-empty'),
+		openRequests: () => { $('[data-action="show-requests"]').click() },
 		rows: () => $$('.signdocs-request'),
 		status: () => $('.signdocs-landing-status'),
 		rowFor: (sessionId) => $(`.signdocs-request[data-session-id="${sessionId}"]`),

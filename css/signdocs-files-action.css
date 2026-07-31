@@ -573,3 +573,36 @@
 	margin: 0;
 	padding: 0;
 }
+
+/* Inline failure on a request row. A page-level message can sit far from the
+ * button that was pressed; a row that silently stays "Pendente" reads as the
+ * click having done nothing. */
+.signdocs-request-error {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+
+.signdocs-request-error-text {
+	font-size: 12px;
+	color: var(--color-error, #c00);
+	max-width: 46ch;
+}
+
+.signdocs-request-retry {
+	border: 1px solid var(--color-border-dark, #ccc);
+	background: var(--color-main-background, #fff);
+	border-radius: 4px;
+	padding: 4px 12px;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+/* Status panel list scrolls too — a document can accumulate many attempts. */
+.signdocs-status-body .signdocs-requests-list {
+	max-height: 50vh;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
