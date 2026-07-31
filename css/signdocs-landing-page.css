@@ -1,7 +1,13 @@
 #signdocs-app {
 	max-width: 920px;
 	margin: 32px auto;
-	padding: 32px 32px 40px;
+	padding: 28px 32px 32px;
+	/* The card must contain its content: NC's app area is height-constrained,
+	 * so without this the last entry point spills past the white rounded
+	 * rectangle instead of the card scrolling. */
+	max-height: calc(100vh - 100px);
+	overflow-y: auto;
+	box-sizing: border-box;
 	color: var(--color-main-text, #000);
 	/* Opaque card so content reads on top of NC's wallpaper. The default
 	 * NC content area on /apps/<id>/ doesn't have a white background, the
@@ -14,12 +20,12 @@
 
 .signdocs-landing-header {
 	text-align: center;
-	margin-bottom: 32px;
+	margin-bottom: 20px;
 }
 
 .signdocs-landing-header h1 {
-	font-size: 28px;
-	margin: 0 0 8px;
+	font-size: 24px;
+	margin: 0 0 6px;
 	color: var(--color-main-text, #000);
 }
 
@@ -35,9 +41,18 @@
 
 .signdocs-landing-actions {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-	gap: 16px;
-	margin: 32px 0;
+	/* Two columns: four stacked full-width cards do not fit the card's height,
+	 * which is what pushed the fourth one outside it. minmax(0, 1fr) rather
+	 * than a min track width so a long label cannot force a single column. */
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+	margin: 20px 0 0;
+}
+
+@media (max-width: 560px) {
+	.signdocs-landing-actions {
+		grid-template-columns: minmax(0, 1fr);
+	}
 }
 
 .signdocs-landing-button {
@@ -45,8 +60,9 @@
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 8px;
-	padding: 32px 16px;
+	gap: 6px;
+	padding: 18px 14px;
+	min-width: 0;
 	background: var(--color-background-hover, #f5f5f5);
 	color: var(--color-main-text, #000);
 	border: 1px solid var(--color-border, #ddd);
@@ -76,6 +92,7 @@
 .signdocs-landing-button-label {
 	font-size: 15px;
 	font-weight: 600;
+	overflow-wrap: anywhere;
 }
 
 .signdocs-landing-button small {
@@ -83,10 +100,11 @@
 	font-size: 12px;
 	font-weight: normal;
 	display: block;
+	overflow-wrap: anywhere;
 }
 
 .signdocs-landing-status {
-	margin: 24px 0;
+	margin: 16px 0 0;
 	padding: 12px 16px;
 	border-radius: 8px;
 	font-size: 14px;
