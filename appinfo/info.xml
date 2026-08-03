@@ -11,10 +11,13 @@ SignDocs Brasil integration for Nextcloud — send any document for signature wi
 
 Features:
 
-- Right-click any PDF, DOCX or ODT and choose **"Assinar com SignDocs Brasil"**.
-- Multi-party signing flows: sequential or parallel signers.
-- ICP-Brasil A1 / A3 digital certificates, click + email-OTP, and simple click-only electronic signatures.
-- Drag-and-drop reordering of signers in sequential mode.
+- Right-click a PDF, DOCX, DOC or ODT and choose **"Assinar com SignDocs Brasil"**.
+- Review step before sending: check the document, signature type, order and every signer — and who will be emailed an invite — before anything is dispatched.
+- ICP-Brasil A1 / A3 digital certificates, click + email-OTP, and simple click-only electronic signatures. All three for PDF; DOCX, DOC and ODT are signed with a digital certificate, which is what produces a signed artifact for those formats.
+- Multi-party signing flows: parallel, or sequential with drag-and-drop reordering when signing with a digital certificate.
+- The signed document comes back to your Nextcloud automatically — the signature embedded in the PDF (PAdES), or the document alongside a detached **.p7s** (CAdES) for other formats.
+- Cancel a pending request from Nextcloud. Pending signing links stop working; signatures already collected are preserved and stay independently verifiable.
+- Track every request with its status, or check one document from the Files context menu.
 - Status badges on files via SystemTags: **assinado**, **pendente**, **cancelado**.
 - Activity stream + in-app notifications when signatures complete.
 - Per-user OAuth or shared tenant API key (admin choice).
@@ -36,10 +39,13 @@ Integração SignDocs Brasil para Nextcloud — envie qualquer documento para as
 
 Recursos:
 
-- Clique direito em qualquer PDF, DOCX ou ODT e escolha **"Assinar com SignDocs Brasil"**.
-- Fluxos multi-parte: assinantes sequenciais ou paralelos.
-- Certificados digitais ICP-Brasil A1 / A3, clique + OTP por email, e assinatura eletrônica simples por clique.
-- Reordenação por arrastar-e-soltar no modo sequencial.
+- Clique direito em um PDF, DOCX, DOC ou ODT e escolha **"Assinar com SignDocs Brasil"**.
+- Etapa de revisão antes do envio: confira documento, tipo de assinatura, ordem e cada signatário — e quem receberá convite por email — antes de qualquer envio.
+- Certificados digitais ICP-Brasil A1 / A3, clique + OTP por email, e assinatura eletrônica simples por clique. Os três modos para PDF; DOCX, DOC e ODT são assinados com Certificado Digital, que é o que produz documento assinado nesses formatos.
+- Fluxos multi-parte: paralelo, ou sequencial com reordenação por arrastar-e-soltar quando a assinatura é com Certificado Digital.
+- O documento assinado volta sozinho para o seu Nextcloud — com a assinatura embutida no PDF (PAdES), ou o documento acompanhado da assinatura destacada **.p7s** (CAdES) nos demais formatos.
+- Cancele uma solicitação pendente pelo próprio Nextcloud. Os links pendentes deixam de funcionar; assinaturas já coletadas são preservadas e continuam verificáveis de forma independente.
+- Acompanhe todas as suas solicitações com status, ou consulte um documento específico pelo menu de contexto do app Arquivos.
 - Etiquetas de status nos arquivos: **assinado**, **pendente**, **cancelado**.
 - Atividades + notificações no Nextcloud quando uma assinatura é concluída.
 - OAuth por usuário ou chave de API compartilhada do tenant (escolha do admin).
@@ -56,7 +62,7 @@ Quais dados saem do seu servidor Nextcloud:
 
 Requer uma conta SignDocs Brasil (plano gratuito disponível em https://signdocs.com.br).
     ]]></description>
-    <version>0.1.2</version>
+    <version>0.2.0</version>
     <licence>agpl</licence>
     <author mail="dev@signdocs.com.br" homepage="https://signdocs.com.br">SignDocs Brasil</author>
     <namespace>SignDocsBrasil</namespace>
