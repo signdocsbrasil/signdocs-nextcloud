@@ -78,7 +78,7 @@ Requer uma conta SignDocs Brasil (plano gratuito disponível em https://signdocs
 
     <dependencies>
         <php min-version="8.1"/>
-        <nextcloud min-version="27" max-version="30"/>
+        <nextcloud min-version="27" max-version="31"/>
     </dependencies>
 
     <background-jobs>

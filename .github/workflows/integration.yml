@@ -9,8 +9,8 @@ name: Integration (real Nextcloud)
 # post-migration SystemTags landed in the DB.
 #
 # Catches issues that PHPStan / php-cs-fixer / phpunit can't, since those
-# run against OCP stub interfaces. The matrix targets the four NC majors
-# declared in appinfo/info.xml's <nextcloud min-version="27" max-version="30">.
+# run against OCP stub interfaces. The matrix targets the five NC majors
+# declared in appinfo/info.xml's <nextcloud min-version="27" max-version="31">.
 
 on:
   push:
@@ -32,7 +32,7 @@ jobs:
       matrix:
         # Image tags from hub.docker.com/_/nextcloud (bare numeric series
         # tags resolve to the latest patch in each NC major).
-        nc-version: ['27', '28', '29', '30']
+        nc-version: ['27', '28', '29', '30', '31']
 
     steps:
       - uses: actions/checkout@v4
