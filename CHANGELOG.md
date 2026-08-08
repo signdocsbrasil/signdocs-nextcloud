@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The Nextcloud App Store reads the section matching each published version, so
 every release must add one here.
 
+## 0.3.0 - 2026-08-07
+
+### Changed
+
+- **Signing links are no longer copyable when the policy is a simple click.**
+  Under simple electronic signing the policy is one click, so the link is a
+  bearer credential: whoever holds it signs as the named signer. Offering the
+  sender a copy button next to it invited signing on the other party's behalf.
+  Those links now leave only as the invitation email SignDocs sends — the URL is
+  not stored, not returned to the browser, and neither the link nor the copy
+  button is rendered. Links under click + OTP and ICP-Brasil digital certificate
+  are unaffected: the URL alone does not satisfy either second factor.
+- **Exception for signing your own document.** SignDocs skips the invitation
+  when a signer's address is the sender's own, so that link is still shown —
+  it is the signer's own link, and withholding it would leave them no way to
+  sign.
+- Simple electronic signing now requires an email address on your Nextcloud
+  profile. Without one the API emails nobody, which combined with the above
+  would create a document that can never be signed. The option is withdrawn from
+  the dialog, and the server refuses the combination.
+
+### Added
+
+- **"Assinar" on your own requests.** When you are a signer on your own send,
+  SignDocs dispatches no invitation — the addresses match — so the link only
+  ever appeared in the dialog that showed it. Rows carrying a signature of your
+  own now offer to mint a fresh link and open the signing page directly. The URL
+  is never displayed and never stored; a new one is issued each time.
+  Requires `signdocs-brasil/signdocs-brasil-php` ^1.10.
+
+### Fixed
+
+- **Single-signer sends now show the signing link.** The link was discarded on
+  creation, so a document you sent to yourself produced no invitation email and
+  no link — it could never be signed, despite the dialog promising a link.
+
 ## 0.2.1 - 2026-08-03
 
 ### Changed

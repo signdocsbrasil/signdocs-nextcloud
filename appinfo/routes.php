@@ -14,6 +14,9 @@ return [
 			'requirements' => ['fileId' => '\d+']],
 		// Cancel a flow: single session, or every session inside an envelope.
 		['name' => 'signing#cancel', 'url' => '/api/v1/sessions/{sessionId}/cancel', 'verb' => 'POST'],
+		// Mint a fresh link for the caller's OWN signature. POST because it
+		// issues a new credential every time — nothing here is cacheable.
+		['name' => 'signing#ownLink', 'url' => '/api/v1/sessions/{sessionId}/own-link', 'verb' => 'POST'],
 
 		// Document intake — convert local upload / remote URL into a NC fileId.
 		// The existing /api/v1/sessions then handles the rest of the flow.

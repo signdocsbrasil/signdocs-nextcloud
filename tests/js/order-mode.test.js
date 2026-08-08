@@ -12,8 +12,16 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { loadDialog } = require('./helpers/dialog-harness')
 
+/**
+ * Every test here is about the mode/order coupling, not about who is sending.
+ * A profile address keeps simple electronic signing on the dropdown — without
+ * one the invite cannot be delivered and the option is dropped, which is
+ * covered in share-links.test.js instead.
+ */
+const withEmail = () => loadDialog({ userEmail: 'owner@example.com' })
+
 test('order dropdown offers only parallel outside ICP mode', () => {
-	const dialog = loadDialog().openDialog()
+	const dialog = withEmail().openDialog()
 
 	assert.equal(dialog.modeSelect.value, 'electronic')
 	assert.deepEqual(dialog.orderOptions(), ['parallel'])
@@ -22,7 +30,7 @@ test('order dropdown offers only parallel outside ICP mode', () => {
 })
 
 test('order is derived from the mode, never chosen on its own', () => {
-	const dialog = loadDialog().openDialog()
+	const dialog = withEmail().openDialog()
 
 	assert.equal(dialog.orderSelect.disabled, true)
 	dialog.setMode('digital_certificate')
@@ -30,7 +38,7 @@ test('order is derived from the mode, never chosen on its own', () => {
 })
 
 test('click + OTP does not unlock sequential either', () => {
-	const dialog = loadDialog().openDialog()
+	const dialog = withEmail().openDialog()
 
 	dialog.setMode('click_plus_otp')
 	assert.deepEqual(dialog.orderOptions(), ['parallel'])
@@ -38,7 +46,7 @@ test('click + OTP does not unlock sequential either', () => {
 })
 
 test('selecting ICP adds sequential and selects it', () => {
-	const dialog = loadDialog().openDialog()
+	const dialog = withEmail().openDialog()
 
 	dialog.setMode('digital_certificate')
 	assert.deepEqual(dialog.orderOptions(), ['parallel', 'sequential'])
@@ -47,7 +55,7 @@ test('selecting ICP adds sequential and selects it', () => {
 })
 
 test('reordering controls follow ICP mode', () => {
-	const dialog = loadDialog().openDialog()
+	const dialog = withEmail().openDialog()
 
 	assert.equal(dialog.sequentialHint.hidden, true)
 	assert.equal(dialog.signerList.classList.contains('signdocs-sequential'), false)
@@ -58,7 +66,7 @@ test('reordering controls follow ICP mode', () => {
 })
 
 test('leaving ICP mode withdraws the sequential option', () => {
-	const dialog = loadDialog().openDialog()
+	const dialog = withEmail().openDialog()
 
 	dialog.setMode('digital_certificate')
 	dialog.setMode('electronic')
@@ -70,7 +78,7 @@ test('leaving ICP mode withdraws the sequential option', () => {
 })
 
 test('repeated mode changes never duplicate the sequential option', () => {
-	const dialog = loadDialog().openDialog()
+	const dialog = withEmail().openDialog()
 
 	for (let i = 0; i < 3; i++) {
 		dialog.setMode('digital_certificate')
@@ -104,7 +112,7 @@ test('a non-PDF offers only certificate signing', () => {
 	// Interim gate: the API keeps non-PDF uploads as documentFormat=generic and
 	// only the certificate step writes an artifact, so click/OTP would sign
 	// something we could never hand back. The options are removed, not disabled.
-	const dialog = loadDialog().openDialog({ id: 7, name: 'Contrato.docx', mime: 'application/msword' })
+	const dialog = withEmail().openDialog({ id: 7, name: 'Contrato.docx', mime: 'application/msword' })
 
 	assert.deepEqual(
 		[...dialog.modeSelect.options].map((o) => o.value),
@@ -119,7 +127,7 @@ test('a non-PDF offers only certificate signing', () => {
 })
 
 test('gating a non-PDF also forces sequential order and reordering', () => {
-	const dialog = loadDialog().openDialog({ id: 7, name: 'Contrato.odt', mime: 'application/vnd.oasis.opendocument.text' })
+	const dialog = withEmail().openDialog({ id: 7, name: 'Contrato.odt', mime: 'application/vnd.oasis.opendocument.text' })
 
 	assert.deepEqual(dialog.orderOptions(), ['parallel', 'sequential'])
 	assert.equal(dialog.orderSelect.value, 'sequential')
@@ -127,7 +135,7 @@ test('gating a non-PDF also forces sequential order and reordering', () => {
 })
 
 test('a PDF keeps every signing mode', () => {
-	const dialog = loadDialog().openDialog({ id: 5, name: 'Contrato.pdf', mime: 'application/pdf' })
+	const dialog = withEmail().openDialog({ id: 5, name: 'Contrato.pdf', mime: 'application/pdf' })
 
 	assert.deepEqual(
 		[...dialog.modeSelect.options].map((o) => o.value),
@@ -137,9 +145,9 @@ test('a PDF keeps every signing mode', () => {
 })
 
 test('the gate is case-insensitive on the extension', () => {
-	const pdf = loadDialog().openDialog({ id: 5, name: 'CONTRATO.PDF', mime: 'application/pdf' })
+	const pdf = withEmail().openDialog({ id: 5, name: 'CONTRATO.PDF', mime: 'application/pdf' })
 	assert.equal(pdf.modeSelect.options.length, 3)
 
-	const docx = loadDialog().openDialog({ id: 7, name: 'CONTRATO.DOCX', mime: 'application/msword' })
+	const docx = withEmail().openDialog({ id: 7, name: 'CONTRATO.DOCX', mime: 'application/msword' })
 	assert.equal(docx.modeSelect.options.length, 1)
 })

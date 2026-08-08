@@ -83,6 +83,9 @@ export function renderRequests(list, rows, { onReload, onMessage, showName = tru
 					${escapeHtml(statusLabel(row.status))}
 				</span>
 				<div class="signdocs-request-actions">
+					${row.selfSigner
+						? `<button type="button" class="signdocs-request-sign primary">${t(APP_ID, 'Assinar')}</button>`
+						: ''}
 					${row.cancellable
 						? `<button type="button" class="signdocs-request-cancel">${t(APP_ID, 'Cancelar')}</button>`
 						: ''}
@@ -96,6 +99,57 @@ export function renderRequests(list, rows, { onReload, onMessage, showName = tru
 			confirmCancel(btn.closest('.signdocs-request'), { onReload, onMessage })
 		})
 	})
+
+	list.querySelectorAll('.signdocs-request-sign').forEach((btn) => {
+		btn.addEventListener('click', () => {
+			openOwnSigningLink(btn.closest('.signdocs-request'), btn, { onMessage })
+		})
+	})
+}
+
+/**
+ * Open the caller's own signing page for this request.
+ *
+ * Nobody is emailed when you are a signer on your own send — the addresses
+ * match — so the link only ever existed in the dialog that has since closed.
+ * This mints a fresh one and goes straight there: the URL is a credential, so
+ * it is never rendered, never copied, and never held longer than the navigation.
+ *
+ * The tab is opened *before* the await and navigated afterwards. Browsers only
+ * treat window.open as user-initiated inside the click handler's own turn, so
+ * opening after the fetch resolves is what gets caught by the popup blocker.
+ */
+export async function openOwnSigningLink(row, button, { onMessage }) {
+	const sessionId = row.getAttribute('data-session-id')
+	const tab = window.open('', '_blank', 'noopener')
+	button.disabled = true
+	button.textContent = t(APP_ID, 'Abrindo…')
+
+	try {
+		const response = await fetch(
+			generateUrl('/apps/' + APP_ID + '/api/v1/sessions/' + encodeURIComponent(sessionId) + '/own-link'),
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', 'requesttoken': requesttoken() },
+			},
+		)
+		const data = await response.json()
+		if (!response.ok) {
+			throw new Error(data?.message || data?.error || String(response.status))
+		}
+		if (tab) {
+			tab.location = data.url
+		} else {
+			// Popup blocked. Navigating the current tab still beats showing the
+			// user a URL we have just gone to some trouble not to display.
+			window.location = data.url
+		}
+	} catch (err) {
+		tab?.close()
+		button.disabled = false
+		button.textContent = t(APP_ID, 'Assinar')
+		onMessage(t(APP_ID, 'Não foi possível abrir seu link de assinatura: ') + err.message, 'error')
+	}
 }
 
 /**

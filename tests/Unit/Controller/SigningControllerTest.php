@@ -128,6 +128,34 @@ class SigningControllerTest extends TestCase {
 		self::assertIsArray($response->getData()['metadata']);
 	}
 
+	public function testCreateStripsAnyUrlThatIsNotMarkedShareable(): void {
+		// The service already declines to persist a withheld URL, so this is the
+		// invariant restated at the only endpoint that serves metadata: url
+		// present implies shareable. A row violating it is stripped, not served.
+		$entity = new SigningSession();
+		$entity->setSessionId('env_1');
+		$entity->setStatus('pending');
+		$entity->setMetadata(json_encode([
+			'kind' => 'envelope',
+			'shareLinks' => [
+				['sessionId' => 'ss_a', 'shareable' => false, 'url' => 'https://sign.test/s/a?cs=leak'],
+				['sessionId' => 'ss_b', 'shareable' => true, 'url' => 'https://sign.test/s/b?cs=ok'],
+				// No flag at all: fail closed rather than assume shareable.
+				['sessionId' => 'ss_c', 'url' => 'https://sign.test/s/c?cs=legacy'],
+			],
+		], JSON_THROW_ON_ERROR));
+
+		$this->service->method('createForFile')->willReturn($entity);
+
+		$links = $this->controller->create(42, [], [])->getData()['metadata']['shareLinks'];
+
+		self::assertArrayNotHasKey('url', $links[0]);
+		self::assertSame('https://sign.test/s/b?cs=ok', $links[1]['url']);
+		self::assertArrayNotHasKey('url', $links[2]);
+		// Entries are keyed off, never dropped — signerCount counts them.
+		self::assertCount(3, $links);
+	}
+
 	public function testListForUserEnrichesRowsForTheUi(): void {
 		// The request list renders straight from this payload, so it has to carry
 		// the file name, the signer count and whether anything is left to cancel

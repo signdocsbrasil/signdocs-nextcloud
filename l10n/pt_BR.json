@@ -104,7 +104,14 @@
 		"Nenhuma solicitação de assinatura para este documento.": "Nenhuma solicitação de assinatura para este documento.",
 		"Acompanhar status e cancelar": "Acompanhar status e cancelar",
 		"Você ainda não enviou nenhum documento para assinatura.": "Você ainda não enviou nenhum documento para assinatura.",
-		"Tentar novamente": "Tentar novamente"
+		"Tentar novamente": "Tentar novamente",
+		"Links de assinatura por clique são enviados apenas por email ao signatário e não podem ser copiados aqui. Use clique + OTP ou certificado digital se precisar compartilhar o link você mesmo.": "Links de assinatura por clique são enviados apenas por email ao signatário e não podem ser copiados aqui. Use clique + OTP ou certificado digital se precisar compartilhar o link você mesmo.",
+		"link enviado por email": "link enviado por email",
+		"A assinatura eletrônica simples depende do convite por email, e seu perfil do Nextcloud não tem endereço. Defina um email no perfil para usá-la, ou escolha clique + OTP ou certificado digital.": "A assinatura eletrônica simples depende do convite por email, e seu perfil do Nextcloud não tem endereço. Defina um email no perfil para usá-la, ou escolha clique + OTP ou certificado digital.",
+		"Use o link abaixo para assinar.": "Use o link abaixo para assinar.",
+		"Assinar": "Assinar",
+		"Abrindo…": "Abrindo…",
+		"Não foi possível abrir seu link de assinatura: ": "Não foi possível abrir seu link de assinatura: "
 	},
 	"pluralForm": "nplurals=2; plural=(n > 1);"
 }

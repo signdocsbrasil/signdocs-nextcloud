@@ -328,15 +328,35 @@ function renderResult(overlay, data) {
 	confirm.hidden = true
 	result.hidden = false
 	const links = data?.metadata?.shareLinks || []
+
+	// Keyed off the URL being there rather than off the flag, so this fails
+	// closed: a bug that drops the URL hides the control, while a bug that drops
+	// the flag cannot make a link appear that the server never sent.
+	const copyable = (l) => typeof l.url === 'string' && l.url !== ''
+	// The note speaks only for links the server deliberately withheld, which
+	// reads differently from a link the API simply didn't return.
+	const anyWithheld = links.some((l) => l.shareable === false)
+
+	// Signing your own document is the one case where nobody is emailed, so
+	// promising an invite there would send the user off to wait for one.
+	const selfOnly = links.length === 1 && links[0].inviteSent !== true && copyable(links[0])
+
 	result.innerHTML = `
 		<h3>${t(APP_ID, 'Enviado!')}</h3>
-		<p>${t(APP_ID, 'Cada signatário receberá um link para assinar.')}</p>
+		<p>${selfOnly
+			? t(APP_ID, 'Use o link abaixo para assinar.')
+			: t(APP_ID, 'Cada signatário receberá um link para assinar.')}</p>
+		${anyWithheld
+			? `<p class="signdocs-share-note">${t(APP_ID, 'Links de assinatura por clique são enviados apenas por email ao signatário e não podem ser copiados aqui. Use clique + OTP ou certificado digital se precisar compartilhar o link você mesmo.')}</p>`
+			: ''}
 		<ul class="signdocs-share-links">
 			${links.map((l) => `
-				<li>
+				<li${copyable(l) ? '' : ' class="signdocs-share-blocked"'}>
 					<strong>${escapeHtml(l.signerEmail || '')}</strong>:
-					<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(l.url)}</a>
-					<button type="button" data-copy="${escapeHtml(l.url)}">${t(APP_ID, 'Copiar')}</button>
+					${copyable(l)
+						? `<a href="${escapeHtml(l.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(l.url)}</a>
+					<button type="button" data-copy="${escapeHtml(l.url)}">${t(APP_ID, 'Copiar')}</button>`
+						: `<span class="signdocs-share-sent">${t(APP_ID, 'link enviado por email')}</span>`}
 				</li>
 			`).join('')}
 		</ul>
@@ -388,6 +408,9 @@ function openSigningDialog(fileInfo) {
 					<small class="signdocs-mode-locked-hint" hidden>
 						${t(APP_ID, 'Documentos que não são PDF só podem ser assinados com Certificado Digital ICP-Brasil, que gera a assinatura destacada (.p7s). Converta para PDF se quiser usar assinatura eletrônica simples ou OTP.')}
 					</small>
+					<small class="signdocs-mode-noemail-hint" hidden>
+						${t(APP_ID, 'A assinatura eletrônica simples depende do convite por email, e seu perfil do Nextcloud não tem endereço. Defina um email no perfil para usá-la, ou escolha clique + OTP ou certificado digital.')}
+					</small>
 				</label>
 
 				<label>
@@ -428,6 +451,7 @@ function openSigningDialog(fileInfo) {
 	const sequentialHint = overlay.querySelector('.signdocs-sequential-hint')
 	const orderLockedHint = overlay.querySelector('.signdocs-order-locked-hint')
 	const modeLockedHint = overlay.querySelector('.signdocs-mode-locked-hint')
+	const modeNoEmailHint = overlay.querySelector('.signdocs-mode-noemail-hint')
 
 	// A non-PDF can only be signed with an ICP-Brasil certificate. The API keeps
 	// non-PDF uploads as documentFormat=generic, and the only artifact that path
@@ -445,6 +469,24 @@ function openSigningDialog(fileInfo) {
 		modeLockedHint.hidden = false
 	}
 	restrictModesForFormat()
+
+	// Simple electronic signing has no second factor, so its link is a bearer
+	// credential and is never shown for copying — it reaches the signer by email
+	// or not at all. With no address on the profile the API emails nobody, which
+	// would leave the document undeliverable *and* unsignable, so drop the option
+	// rather than let the user discover that after spending their quota. The
+	// server refuses the same combination (SigningSessionService); this only
+	// keeps the rejection off the screen.
+	const restrictModesForMissingEmail = () => {
+		if (ownerEmail) return
+		const electronic = modeSelect.querySelector('option[value="electronic"]')
+		if (!electronic) return
+		electronic.remove()
+		// Falls through to click + OTP, a strictly stronger policy.
+		modeSelect.value = 'click_plus_otp'
+		modeNoEmailHint.hidden = false
+	}
+	restrictModesForMissingEmail()
 
 	// Sequential ordering belongs to ICP-Brasil digital certificates alone:
 	// each signer chains onto the previous signature, so the order is part of

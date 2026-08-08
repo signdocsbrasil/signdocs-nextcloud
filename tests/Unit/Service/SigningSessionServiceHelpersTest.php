@@ -7,6 +7,7 @@ namespace OCA\SignDocsBrasil\Tests\Unit\Service;
 use OCA\SignDocsBrasil\Service\SigningSessionService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use SignDocsBrasil\Api\Models\Owner;
 use SignDocsBrasil\Api\Models\Signer;
 
 /**
@@ -29,6 +30,10 @@ class SigningSessionServiceHelpersTest extends TestCase {
 	private \ReflectionMethod $validateSigners;
 	/** @var \ReflectionMethod */
 	private \ReflectionMethod $validateDocumentFormat;
+	/** @var \ReflectionMethod */
+	private \ReflectionMethod $buildShareLink;
+	/** @var \ReflectionMethod */
+	private \ReflectionMethod $validateInviteDeliverable;
 	/** @var SigningSessionService */
 	private SigningSessionService $stub;
 
@@ -50,6 +55,12 @@ class SigningSessionServiceHelpersTest extends TestCase {
 
 		$this->validateDocumentFormat = $ref->getMethod('validateDocumentFormat');
 		$this->validateDocumentFormat->setAccessible(true);
+
+		$this->buildShareLink = $ref->getMethod('buildShareLink');
+		$this->buildShareLink->setAccessible(true);
+
+		$this->validateInviteDeliverable = $ref->getMethod('validateInviteDeliverable');
+		$this->validateInviteDeliverable->setAccessible(true);
 
 		// Construct without calling __construct (skips dependency wiring).
 		$this->stub = $ref->newInstanceWithoutConstructor();
@@ -356,5 +367,174 @@ class SigningSessionServiceHelpersTest extends TestCase {
 		self::assertSame('pending', SigningSessionService::canonicalStatus('CREATED'));
 		self::assertSame('pending', SigningSessionService::canonicalStatus('PENDING'));
 		self::assertSame('pending', SigningSessionService::canonicalStatus('IN_PROGRESS'));
+	}
+
+	/**
+	 * @param array<string, mixed> $signerData
+	 * @return array<string, mixed>
+	 */
+	private function shareLink(string $profile, array $signerData, ?Owner $owner, string $url = 'https://sign.test/s/1', string $secret = 'ss_secret_abc'): array {
+		return $this->buildShareLink->invoke(
+			null,
+			$profile,
+			$signerData,
+			'ss_1',
+			$url,
+			$secret,
+			true,
+			$owner,
+		);
+	}
+
+	public function testClickOnlyLinkIsWithheldFromAThirdParty(): void {
+		// The whole point: a CLICK_ONLY URL is a bearer credential, so it is
+		// never written down for the sender to pass along.
+		$entry = $this->shareLink(
+			'CLICK_ONLY',
+			['email' => 'maria@example.com', 'name' => 'Maria'],
+			new Owner(email: 'owner@example.com', name: 'Owner'),
+		);
+
+		self::assertArrayNotHasKey('url', $entry);
+		self::assertFalse($entry['shareable']);
+		self::assertSame('maria@example.com', $entry['signerEmail']);
+	}
+
+	public function testClickOnlyLinkSurvivesForTheSenderSigningTheirOwnDocument(): void {
+		// SignDocs skips the invite when the addresses match, so withholding
+		// this one would leave nobody able to sign.
+		$entry = $this->shareLink(
+			'CLICK_ONLY',
+			['email' => 'owner@example.com', 'name' => 'Owner'],
+			new Owner(email: 'owner@example.com', name: 'Owner'),
+		);
+
+		self::assertTrue($entry['shareable']);
+		self::assertSame('https://sign.test/s/1?cs=ss_secret_abc', $entry['url']);
+	}
+
+	public function testTheSelfSignerMatchIgnoresCaseAndSurroundingSpace(): void {
+		// The front end decides the same thing with JS toLowerCase(); a
+		// byte-wise compare here would promise a link and then not render one.
+		$entry = $this->shareLink(
+			'CLICK_ONLY',
+			['email' => '  Owner@Example.COM '],
+			new Owner(email: 'owner@example.com', name: 'Owner'),
+		);
+
+		self::assertTrue($entry['shareable']);
+	}
+
+	public function testSecondFactorProfilesKeepTheirLinks(): void {
+		$owner = new Owner(email: 'owner@example.com', name: 'Owner');
+		foreach (['CLICK_PLUS_OTP', 'DIGITAL_CERTIFICATE', 'BIOMETRIC'] as $profile) {
+			$entry = $this->shareLink($profile, ['email' => 'maria@example.com'], $owner);
+			self::assertTrue($entry['shareable'], $profile . ' should be shareable');
+			self::assertArrayHasKey('url', $entry, $profile . ' should carry a url');
+		}
+	}
+
+	public function testAnUnknownProfileIsTreatedAsUnshareable(): void {
+		// The allowlist is what makes this fail closed: a profile added to the
+		// API later is withheld until somebody reviews it.
+		$entry = $this->shareLink(
+			'SOME_FUTURE_PROFILE',
+			['email' => 'maria@example.com'],
+			new Owner(email: 'owner@example.com', name: 'Owner'),
+		);
+
+		self::assertFalse($entry['shareable']);
+		self::assertArrayNotHasKey('url', $entry);
+	}
+
+	public function testNoOwnerMeansNoSelfSignerCarveOut(): void {
+		$entry = $this->shareLink('CLICK_ONLY', ['email' => 'maria@example.com'], null);
+
+		self::assertFalse($entry['shareable']);
+		self::assertArrayNotHasKey('url', $entry);
+	}
+
+	public function testAnEmptyUrlOrSecretNeverBecomesARelativeLink(): void {
+		// The SDK defaults both to '' when the API omits them, and '' . '?cs=…'
+		// is a relative URL the browser would render as a working link.
+		$owner = new Owner(email: 'owner@example.com', name: 'Owner');
+
+		$noUrl = $this->shareLink('CLICK_PLUS_OTP', ['email' => 'maria@example.com'], $owner, '', 'ss_secret_abc');
+		self::assertArrayNotHasKey('url', $noUrl);
+
+		$noSecret = $this->shareLink('CLICK_PLUS_OTP', ['email' => 'maria@example.com'], $owner, 'https://sign.test/s/1', '');
+		self::assertArrayNotHasKey('url', $noSecret);
+	}
+
+	/** @param array<int, array<string, mixed>> $shareLinks */
+	private function metadata(array $shareLinks): string {
+		return json_encode(['kind' => 'envelope', 'shareLinks' => $shareLinks], JSON_THROW_ON_ERROR);
+	}
+
+	public function testHasOwnSignatureFindsTheCallersOwnEntry(): void {
+		$meta = $this->metadata([
+			['sessionId' => 'ss_a', 'signerEmail' => 'maria@example.com', 'shareable' => false],
+			['sessionId' => 'ss_b', 'signerEmail' => 'Owner@Example.com', 'shareable' => true],
+		]);
+
+		self::assertTrue(SigningSessionService::hasOwnSignature($meta, 'owner@example.com'));
+	}
+
+	public function testHasOwnSignatureIgnoresOtherPeoplesEntries(): void {
+		// The point of the whole feature: this must not become a way to mint
+		// somebody else's link.
+		$meta = $this->metadata([
+			['sessionId' => 'ss_a', 'signerEmail' => 'maria@example.com', 'shareable' => true],
+		]);
+
+		self::assertFalse(SigningSessionService::hasOwnSignature($meta, 'owner@example.com'));
+	}
+
+	public function testHasOwnSignatureRefusesAWithheldEntryEvenIfItIsYours(): void {
+		// Can't happen through createForFile — your own entry is always
+		// shareable — but the predicate must not be the weak link if it does.
+		$meta = $this->metadata([
+			['sessionId' => 'ss_a', 'signerEmail' => 'owner@example.com', 'shareable' => false],
+		]);
+
+		self::assertFalse(SigningSessionService::hasOwnSignature($meta, 'owner@example.com'));
+	}
+
+	public function testHasOwnSignatureTreatsLegacyRowsAsWithheld(): void {
+		// Rows written before the flag existed carry a url and no `shareable`.
+		// Fail closed rather than mint from a row whose policy we can't confirm.
+		$meta = $this->metadata([
+			['sessionId' => 'ss_a', 'signerEmail' => 'owner@example.com', 'url' => 'https://sign.test/s/a?cs=x'],
+		]);
+
+		self::assertFalse(SigningSessionService::hasOwnSignature($meta, 'owner@example.com'));
+	}
+
+	public function testHasOwnSignatureNeedsAnAddressAndASessionId(): void {
+		$meta = $this->metadata([
+			['sessionId' => '', 'signerEmail' => 'owner@example.com', 'shareable' => true],
+		]);
+
+		self::assertFalse(SigningSessionService::hasOwnSignature($meta, 'owner@example.com'));
+		self::assertFalse(SigningSessionService::hasOwnSignature($meta, null));
+		self::assertFalse(SigningSessionService::hasOwnSignature($meta, ''));
+		self::assertFalse(SigningSessionService::hasOwnSignature(null, 'owner@example.com'));
+		self::assertFalse(SigningSessionService::hasOwnSignature('not json', 'owner@example.com'));
+	}
+
+	public function testClickOnlyIsRefusedWithoutAProfileEmail(): void {
+		// Nobody would be emailed and no link would be shown — a document
+		// created, charged for, and unsignable.
+		$this->expectException(\InvalidArgumentException::class);
+		$this->validateInviteDeliverable->invoke(null, 'CLICK_ONLY', '');
+	}
+
+	public function testASecondFactorProfileNeedsNoProfileEmail(): void {
+		// The OTP reaches the signer from the signing page itself, so an
+		// ownerless send is still usable from a manually pasted link.
+		$this->validateInviteDeliverable->invoke(null, 'CLICK_PLUS_OTP', null);
+		$this->validateInviteDeliverable->invoke(null, 'DIGITAL_CERTIFICATE', '');
+		$this->validateInviteDeliverable->invoke(null, 'CLICK_ONLY', 'owner@example.com');
+		self::assertTrue(true);
 	}
 }

@@ -402,6 +402,24 @@
 	cursor: pointer;
 }
 
+/* Why a signer's link is missing. Carries its meaning in words, not colour. */
+.signdocs-share-note {
+	margin: 8px 0 0;
+	padding: 8px 10px;
+	border-left: 3px solid var(--color-border-dark, #ccc);
+	background: var(--color-background-hover, #f5f5f5);
+	color: var(--color-text-maxcontrast, #6b6b6b);
+	font-size: 0.9em;
+}
+
+.signdocs-share-links li.signdocs-share-blocked {
+	color: var(--color-text-maxcontrast, #6b6b6b);
+}
+
+.signdocs-share-sent {
+	font-style: italic;
+}
+
 .icon-signdocs {
 	background-image: var(--icon-signdocs, none);
 }
@@ -495,6 +513,23 @@
 .signdocs-request-actions {
 	flex: 0 0 auto;
 	margin-left: auto;
+}
+
+/* Sits before Cancelar, and is the affirmative action of the pair. */
+.signdocs-request-sign {
+	background: var(--color-primary-element, #0082c9);
+	border: 1px solid var(--color-primary-element, #0082c9);
+	color: var(--color-primary-element-text, #fff);
+	border-radius: 4px;
+	padding: 4px 12px;
+	margin-right: 6px;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.signdocs-request-sign:disabled {
+	opacity: 0.6;
+	cursor: default;
 }
 
 .signdocs-request-cancel {

@@ -61,11 +61,40 @@ class SigningController extends Controller {
 			);
 		}
 
+		$metadata = $session->getMetadata() ? json_decode($session->getMetadata(), true) : null;
+
 		return new DataResponse([
 			'sessionId' => $session->getSessionId(),
 			'status' => $session->getStatus(),
-			'metadata' => $session->getMetadata() ? json_decode($session->getMetadata(), true) : null,
+			'metadata' => is_array($metadata) ? $this->withheldLinksStripped($metadata) : $metadata,
 		]);
+	}
+
+	/**
+	 * Belt-and-braces on the one response that carries signing URLs.
+	 *
+	 * The service already declines to persist a URL the sender may not share
+	 * (see SigningSessionService::mayShareLink), so this should never have
+	 * anything to do. It restates the invariant rather than the rule — url
+	 * present implies shareable — so a row that ever violates it is stripped
+	 * instead of served. Fail-closed: an entry with no flag counts as withheld.
+	 *
+	 * @param array<string, mixed> $metadata
+	 * @return array<string, mixed>
+	 */
+	private function withheldLinksStripped(array $metadata): array {
+		if (!is_array($metadata['shareLinks'] ?? null)) {
+			return $metadata;
+		}
+
+		$metadata['shareLinks'] = array_map(static function ($link) {
+			if (is_array($link) && ($link['shareable'] ?? false) !== true) {
+				unset($link['url']);
+			}
+			return $link;
+		}, $metadata['shareLinks']);
+
+		return $metadata;
 	}
 
 	/**
@@ -79,8 +108,9 @@ class SigningController extends Controller {
 
 		$entities = $this->mapper->findByUser($user->getUID(), $limit, $offset);
 		$userFolder = $this->rootFolder->getUserFolder($user->getUID());
+		$ownEmail = $user->getEMailAddress();
 
-		return new DataResponse(array_map(function ($e) use ($userFolder) {
+		return new DataResponse(array_map(function ($e) use ($userFolder, $ownEmail) {
 			$meta = json_decode((string)$e->getMetadata(), true);
 			$meta = is_array($meta) ? $meta : [];
 			$kind = $meta['kind'] ?? 'session';
@@ -99,6 +129,11 @@ class SigningController extends Controller {
 				'updatedAt' => $e->getUpdatedAt(),
 				'signedFileId' => $e->getSignedFileId(),
 				'cancellable' => !in_array($e->getStatus(), ['completed', 'cancelled'], true),
+				// Whether the row carries a signature of the viewer's own, so the
+				// list can offer to mint them a link. No URL here — that costs an
+				// API call per row and would put a credential in a list payload.
+				'selfSigner' => SigningSessionService::hasOwnSignature($e->getMetadata(), $ownEmail)
+					&& !in_array($e->getStatus(), ['completed', 'cancelled'], true),
 			];
 		}, $entities));
 	}
@@ -114,10 +149,11 @@ class SigningController extends Controller {
 	 */
 	public function listForFile(int $fileId): DataResponse {
 		$entities = $this->mapper->findByFile($fileId);
+		$ownEmail = $this->userSession->getUser()?->getEMailAddress();
 
 		// Same shape as listForUser minus the file name, which the caller
 		// already knows — the per-file status panel renders straight from this.
-		return new DataResponse(array_map(static function ($e) {
+		return new DataResponse(array_map(static function ($e) use ($ownEmail) {
 			$meta = json_decode((string)$e->getMetadata(), true);
 			$meta = is_array($meta) ? $meta : [];
 			return [
@@ -129,6 +165,8 @@ class SigningController extends Controller {
 				'updatedAt' => $e->getUpdatedAt(),
 				'signedFileId' => $e->getSignedFileId(),
 				'cancellable' => !in_array($e->getStatus(), ['completed', 'cancelled'], true),
+				'selfSigner' => SigningSessionService::hasOwnSignature($e->getMetadata(), $ownEmail)
+					&& !in_array($e->getStatus(), ['completed', 'cancelled'], true),
 			];
 		}, $entities));
 	}
@@ -189,5 +227,52 @@ class SigningController extends Controller {
 			'preservedSignedCount' => $result['preservedSigned'],
 			'alreadyCancelled' => $result['alreadyCancelled'],
 		]);
+	}
+
+	/**
+	 * Mint a fresh link for the caller's own signature on this flow.
+	 *
+	 * The link shown when the document was sent is gone once that dialog closes,
+	 * and it is deliberately not kept anywhere. This issues a new one, but only
+	 * for a signature that is the caller's own — the service enforces that, and
+	 * a request for anyone else's link is a 404 here rather than a mint upstream.
+	 *
+	 * @NoAdminRequired
+	 */
+	public function ownLink(string $sessionId): DataResponse {
+		$user = $this->userSession->getUser();
+		if ($user === null) {
+			return new DataResponse(['error' => 'not_authenticated'], Http::STATUS_UNAUTHORIZED);
+		}
+
+		try {
+			$link = $this->service->mintOwnSigningLink($sessionId);
+		} catch (DoesNotExistException) {
+			return new DataResponse(['error' => 'not_found'], Http::STATUS_NOT_FOUND);
+		} catch (\OCP\Files\NotFoundException $e) {
+			// No signature of the caller's own on this row — same shape as the
+			// missing-row case, so this never reports who else signs it.
+			return new DataResponse(
+				['error' => 'not_a_signer', 'message' => $e->getMessage()],
+				Http::STATUS_NOT_FOUND,
+			);
+		} catch (NotConnectedException $e) {
+			return new DataResponse(
+				['error' => 'not_connected', 'message' => $e->getMessage()],
+				Http::STATUS_PRECONDITION_FAILED,
+			);
+		} catch (\Throwable $e) {
+			// The URL must never reach the log — it is the credential itself.
+			$this->logger->error('Failed to mint own signing link', [
+				'exception' => $e,
+				'sessionId' => $sessionId,
+			]);
+			return new DataResponse(
+				['error' => 'link_failed', 'message' => $e->getMessage()],
+				Http::STATUS_INTERNAL_SERVER_ERROR,
+			);
+		}
+
+		return new DataResponse($link);
 	}
 }

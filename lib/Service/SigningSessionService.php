@@ -34,8 +34,11 @@ use SignDocsBrasil\Api\Models\Signer;
  * 2+ signers   → EnvelopesResource::create() + addSession() per signer
  *
  * The persisted `session_id` for multi-signer flows is the envelope id; the
- * stored metadata holds the per-signer session ids and share URLs (built as
- * `{url}?cs={clientSecret}` per the SignDocs URL assembly contract).
+ * stored metadata holds the per-signer session ids and, for signers whose policy
+ * permits it, share URLs (built as `{url}?cs={clientSecret}` per the SignDocs URL
+ * assembly contract). See {@see self::mayShareLink()} for which ones qualify —
+ * a click-only link is a bearer credential with no second factor, so it is never
+ * written to metadata and never reaches the browser.
  */
 class SigningSessionService {
 	/** Leading bytes of a PDF. */
@@ -54,6 +57,24 @@ class SigningSessionService {
 	 * At the job's 5-minute cadence this is roughly an hour.
 	 */
 	private const MAX_ARTIFACT_ATTEMPTS = 12;
+
+	/**
+	 * Policy profiles that put a factor between holding a signing URL and
+	 * producing a signature — an emailed OTP, or possession of an ICP-Brasil
+	 * certificate. Only these links may be copied out of the Nextcloud UI.
+	 *
+	 * An allowlist on purpose. CLICK_ONLY resolves to the single CLICK_ACCEPT
+	 * step, which makes its link a bearer credential: whoever holds the URL can
+	 * sign *as* the named signer. Testing for that one profile by name would be a
+	 * denylist, and a denylist admits every profile added after it — so a profile
+	 * added later stays unshareable until somebody deliberately reviews it and
+	 * adds it here.
+	 */
+	private const SECOND_FACTOR_PROFILES = [
+		'CLICK_PLUS_OTP',
+		'DIGITAL_CERTIFICATE',
+		'BIOMETRIC',
+	];
 
 	/** The mutually exclusive status badges a file can carry. */
 	private const STATUS_TAGS = [
@@ -107,6 +128,13 @@ class SigningSessionService {
 			? new Owner(email: $ownerEmail, name: $user->getDisplayName())
 			: null;
 
+		$mode = (string)($options['mode'] ?? 'electronic');
+		$profile = $this->mapModeToProfile($mode);
+
+		// Needs the owner address, which validateOptions above runs too early to
+		// see. Still ahead of the file read so a doomed request costs nothing.
+		self::validateInviteDeliverable($profile, $ownerEmail);
+
 		$userFolder = $this->rootFolder->getUserFolder($userId);
 		$nodes = $userFolder->getById($fileId);
 		if (empty($nodes) || !$nodes[0] instanceof File) {
@@ -114,14 +142,14 @@ class SigningSessionService {
 		}
 		$file = $nodes[0];
 		$content = $file->getContent();
-		$this->validateDocumentFormat($content, (string)($options['mode'] ?? 'electronic'));
+		$this->validateDocumentFormat($content, $mode);
 		$documentInline = [
 			'content' => base64_encode($content),
 			'filename' => $file->getName(),
 		];
 
 		$client = $this->clientFactory->forCurrentUser();
-		$policy = new Policy(profile: $this->mapModeToProfile($options['mode'] ?? 'electronic'));
+		$policy = new Policy(profile: $profile);
 		// Validity is server-side; the API picks a sensible default. Don't
 		// surface validityDays from the UI even if it sneaks in.
 		$metadata = [
@@ -129,8 +157,6 @@ class SigningSessionService {
 			'nc_file_id' => (string)$fileId,
 			'nc_user_id' => $userId,
 		];
-
-		$mode = (string)($options['mode'] ?? 'electronic');
 
 		if (count($signers) <= 1) {
 			return $this->createSingle($client, $policy, $signers[0] ?? null, $documentInline, $metadata, $fileId, $userId, $owner, $mode);
@@ -164,7 +190,18 @@ class SigningSessionService {
 				// whether a non-PDF can ever yield a signed artifact.
 				'mode' => $mode,
 				'transactionId' => $apiSession->transactionId,
+				// `signers` is kept for rows written before shareLinks reached this
+				// path; signerCount still falls back to it for those.
 				'signers' => [['email' => $signerData['email'] ?? null, 'name' => $signerData['name'] ?? null]],
+				'shareLinks' => [self::buildShareLink(
+					profile: $policy->profile,
+					signerData: $signerData,
+					sessionId: $apiSession->sessionId,
+					url: $apiSession->url,
+					clientSecret: $apiSession->clientSecret,
+					inviteSent: $apiSession->inviteSent,
+					owner: $owner,
+				)],
 			],
 			transactionId: $apiSession->transactionId,
 		);
@@ -188,13 +225,15 @@ class SigningSessionService {
 				signerIndex: $i + 1,
 				purpose: 'DOCUMENT_SIGNATURE',
 			));
-			$shareLinks[] = [
-				'signerEmail' => $signerData['email'] ?? null,
-				'signerName' => $signerData['name'] ?? null,
-				'sessionId' => $envSession->sessionId,
-				'url' => $envSession->url . '?cs=' . urlencode($envSession->clientSecret),
-				'inviteSent' => $envSession->inviteSent,
-			];
+			$shareLinks[] = self::buildShareLink(
+				profile: $policy->profile,
+				signerData: $signerData,
+				sessionId: $envSession->sessionId,
+				url: $envSession->url,
+				clientSecret: $envSession->clientSecret,
+				inviteSent: $envSession->inviteSent,
+				owner: $owner,
+			);
 		}
 
 		return $this->persist(
@@ -258,6 +297,101 @@ class SigningSessionService {
 		]);
 
 		return $result;
+	}
+
+	/**
+	 * Mint a fresh signing link for the caller's own signature.
+	 *
+	 * Recovers the one case the sharing rules deliberately leave stranded. When
+	 * you are a signer on your own send, SignDocs dispatches no invitation — the
+	 * addresses match — so the link exists only in the response to the create
+	 * call. Close that dialog and the document becomes unsignable.
+	 *
+	 * Scoped three ways, in order: the row must belong to you, the entry must be
+	 * one the sharing rules already allow you to hold, and its address must be
+	 * your own. The last check is what keeps this from being a way around the
+	 * withholding — asking for someone else's link fails here, not upstream,
+	 * because the API only authorises the tenant and would happily mint it.
+	 *
+	 * The result is never persisted. It is minted on demand precisely so no
+	 * bearer credential has to sit in the database waiting to be recovered.
+	 *
+	 * @return array{url: string, expiresAt: string}
+	 * @throws DoesNotExistException when the id is not mirrored locally
+	 * @throws NotFoundException when the caller is not a signer on this row
+	 * @throws NotConnectedException when the user has no linked SignDocs account
+	 */
+	public function mintOwnSigningLink(string $sessionId): array {
+		$user = $this->userSession->getUser();
+		if ($user === null) {
+			throw new \RuntimeException('No active user session.');
+		}
+
+		$entity = $this->mapper->findBySessionId($sessionId);
+		if ($entity->getUserId() !== $user->getUID()) {
+			// Somebody else's row. Indistinguishable from a missing one on
+			// purpose — this endpoint should not confirm what exists.
+			throw new NotFoundException('Signing flow not found: ' . $sessionId);
+		}
+
+		$entry = self::findOwnShareLink($entity->getMetadata(), $user->getEMailAddress());
+		if ($entry === null) {
+			throw new NotFoundException('No signature of your own on this document.');
+		}
+
+		$link = $this->clientFactory
+			->signingSessionsFor($user->getUID())
+			->link((string)$entry['sessionId']);
+
+		$this->logger->info('Minted own signing link', [
+			'sessionId' => $sessionId,
+			'signerSessionId' => $entry['sessionId'],
+		]);
+
+		return ['url' => $link->url, 'expiresAt' => $link->expiresAt];
+	}
+
+	/**
+	 * The caller's own entry in a row's shareLinks, or null if they have none.
+	 *
+	 * Requires `shareable`, so this can never surface a link the create response
+	 * withheld: the predicate is the same one that decided it then, and a
+	 * click-only third-party entry fails it. Legacy rows written before that
+	 * flag existed carry no `shareable` key and are treated as withheld.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	private static function findOwnShareLink(?string $metadataJson, ?string $ownEmail): ?array {
+		if ($ownEmail === null || $ownEmail === '') {
+			return null;
+		}
+		$meta = json_decode((string)$metadataJson, true);
+		if (!is_array($meta) || !is_array($meta['shareLinks'] ?? null)) {
+			return null;
+		}
+
+		foreach ($meta['shareLinks'] as $entry) {
+			if (!is_array($entry) || ($entry['shareable'] ?? false) !== true) {
+				continue;
+			}
+			if (($entry['sessionId'] ?? '') === '') {
+				continue;
+			}
+			if (self::sameAddress(isset($entry['signerEmail']) ? (string)$entry['signerEmail'] : null, $ownEmail)) {
+				return $entry;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Does this row carry a signature belonging to the given user? Drives the
+	 * "Assinar" action in the request list, so the button only appears where the
+	 * link can actually be minted.
+	 */
+	public static function hasOwnSignature(?string $metadataJson, ?string $ownEmail): bool {
+		return self::findOwnShareLink($metadataJson, $ownEmail) !== null;
 	}
 
 	/**
@@ -810,6 +944,129 @@ class SigningSessionService {
 		// Certificate signing chains each signature onto the previous one, so it
 		// is exactly the certificate modes that force sequential order.
 		return self::isDigitalCertificateMode($mode);
+	}
+
+	/**
+	 * One entry of the persisted `shareLinks` list, carrying the signing URL only
+	 * when that link may be handed around.
+	 *
+	 * The URL is withheld from the metadata blob itself, not merely from the HTTP
+	 * response: nothing in the app reads it back (the list endpoints only count
+	 * the entries), and re-delivery is the API's job via resend-invite, which
+	 * mints a fresh token rather than replaying a stored one. Keeping a bearer
+	 * credential nothing consumes would only widen the blast radius of a database
+	 * or backup leak.
+	 *
+	 * @param array<string, mixed> $signerData
+	 * @return array<string, mixed>
+	 */
+	private static function buildShareLink(
+		string $profile,
+		array $signerData,
+		string $sessionId,
+		string $url,
+		string $clientSecret,
+		?bool $inviteSent,
+		?Owner $owner,
+	): array {
+		$signerEmail = isset($signerData['email']) ? (string)$signerData['email'] : null;
+		$shareable = self::mayShareLink($profile, $signerEmail, $owner);
+
+		$entry = [
+			'signerEmail' => $signerEmail,
+			'signerName' => $signerData['name'] ?? null,
+			'sessionId' => $sessionId,
+			// Distinguishes "deliberately withheld" from "the API returned
+			// nothing", which the front end words differently.
+			'shareable' => $shareable,
+			'inviteSent' => $inviteSent,
+		];
+
+		// The SDK defaults both to '' when the API omits them, and '' . '?cs=…'
+		// is a relative URL the browser would happily render as a link.
+		if ($shareable && $url !== '' && $clientSecret !== '') {
+			$entry['url'] = $url . '?cs=' . urlencode($clientSecret);
+		}
+
+		return $entry;
+	}
+
+	private static function profileCarriesSecondFactor(string $profile): bool {
+		return in_array($profile, self::SECOND_FACTOR_PROFILES, true);
+	}
+
+	/**
+	 * May the sender be shown this signer's link?
+	 *
+	 * Yes when the policy carries a second factor the URL alone does not satisfy.
+	 * Otherwise the link is a bearer credential and offering the sender a copy
+	 * button next to it invites signing on the other party's behalf — so it goes
+	 * out by SignDocs email and nowhere else.
+	 *
+	 * The one exception is the signer who *is* the sender: SignDocs skips the
+	 * invitation when the addresses match, so withholding the link would leave
+	 * that person no way to sign their own document — and it is their own link,
+	 * so there is nobody to impersonate.
+	 *
+	 * Decided from the profile actually sent in the policy, and from a local
+	 * address comparison. Deliberately not keyed off the API's `inviteSent`,
+	 * which is only emitted when true: an API that stopped sending it would read
+	 * as "no invite went out" and open every click-only link.
+	 */
+	private static function mayShareLink(string $profile, ?string $signerEmail, ?Owner $owner): bool {
+		if (self::profileCarriesSecondFactor($profile)) {
+			return true;
+		}
+
+		return self::sameAddress($signerEmail, $owner?->email);
+	}
+
+	/**
+	 * Case-insensitive address match, mirroring the rule the API applies between
+	 * owner and signer. mb_strtolower rather than strtolower because the front
+	 * end decides the same thing with JS toLowerCase(), which is Unicode-aware —
+	 * a byte-wise compare here would promise a link on the review step and then
+	 * not render one for an accented local part.
+	 *
+	 * No plus-address or dot normalisation: being stricter than the API strands a
+	 * signer, being looser exposes a link the API emailed to a different mailbox.
+	 */
+	private static function sameAddress(?string $a, ?string $b): bool {
+		if ($a === null || $b === null) {
+			return false;
+		}
+		$a = mb_strtolower(trim($a), 'UTF-8');
+		$b = mb_strtolower(trim($b), 'UTF-8');
+
+		return $a !== '' && $a === $b;
+	}
+
+	/**
+	 * Refuse a send whose links can neither be emailed nor shown.
+	 *
+	 * Without an owner the API emails nobody, and a link with no second factor is
+	 * never copyable, so the request would produce a document with no delivery
+	 * path at all — signed by no one, and still charged against the quota. It is
+	 * also the way around the rule above: clearing your profile address would
+	 * otherwise turn every click-only link into a shareable one.
+	 *
+	 * Only this one combination is affected. Under click+OTP the code is
+	 * delivered by the signing page to the signer's own mailbox at the OTP step,
+	 * independent of the invite, so an ownerless OTP send stays usable from a
+	 * manually pasted link.
+	 *
+	 * English message on purpose — the controller maps it to a 422.
+	 */
+	private static function validateInviteDeliverable(string $profile, ?string $ownerEmail): void {
+		if (self::profileCarriesSecondFactor($profile)) {
+			return;
+		}
+		if ($ownerEmail !== null && $ownerEmail !== '') {
+			return;
+		}
+		throw new \InvalidArgumentException(
+			'Click-only signing requires an email address on your Nextcloud profile.'
+		);
 	}
 
 	private function mapModeToProfile(string $mode): string {

@@ -104,7 +104,14 @@
 		"Nenhuma solicitação de assinatura para este documento.": "No signature requests for this document.",
 		"Acompanhar status e cancelar": "Track status and cancel",
 		"Você ainda não enviou nenhum documento para assinatura.": "You have not sent any document for signature yet.",
-		"Tentar novamente": "Try again"
+		"Tentar novamente": "Try again",
+		"Links de assinatura por clique são enviados apenas por email ao signatário e não podem ser copiados aqui. Use clique + OTP ou certificado digital se precisar compartilhar o link você mesmo.": "Click-to-sign links are emailed to the signer only and cannot be copied here. Use click + OTP or a digital certificate if you need to share the link yourself.",
+		"link enviado por email": "link sent by email",
+		"A assinatura eletrônica simples depende do convite por email, e seu perfil do Nextcloud não tem endereço. Defina um email no perfil para usá-la, ou escolha clique + OTP ou certificado digital.": "Simple electronic signing relies on the email invitation, and your Nextcloud profile has no address. Set an email on your profile to use it, or choose click + OTP or a digital certificate.",
+		"Use o link abaixo para assinar.": "Use the link below to sign.",
+		"Assinar": "Sign",
+		"Abrindo…": "Opening…",
+		"Não foi possível abrir seu link de assinatura: ": "Could not open your signing link: "
 	},
 	"pluralForm": "nplurals=2; plural=(n != 1);"
 }
