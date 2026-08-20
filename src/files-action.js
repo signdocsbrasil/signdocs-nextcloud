@@ -570,6 +570,15 @@ function openSigningDialog(fileInfo) {
 		return signers
 	}
 
+	const newRequestId = () => {
+		if (typeof globalThis.crypto?.randomUUID === 'function') {
+			return globalThis.crypto.randomUUID()
+		}
+		// Older browsers, and jsdom. Only needs to be unique per submission.
+		return 'nc-' + Date.now().toString(36) + '-'
+			+ Math.random().toString(36).slice(2, 12)
+	}
+
 	const sendForSignature = async (signers, options) => {
 		const response = await fetch(generateUrl('/apps/' + APP_ID + '/api/v1/sessions'), {
 			method: 'POST',
@@ -600,7 +609,17 @@ function openSigningDialog(fileInfo) {
 		// Read the selects through the refs already in scope rather than the
 		// form's named properties: the order select is disabled now that it's
 		// derived from the mode, which excludes it from the form's own data.
-		const options = { mode: modeSelect.value, order: orderSelect.value }
+		// Minted once per submission, not once per attempt. renderConfirmStep's
+		// callback can fire more than once — a double-clicked confirm, or a
+		// retry after the request times out — and without a stable id each of
+		// those buys another envelope, another quota charge and another round
+		// of invitations. Opening the dialog again mints a new one, so sending
+		// the same document twice on purpose still works.
+		const options = {
+			mode: modeSelect.value,
+			order: orderSelect.value,
+			requestId: newRequestId(),
+		}
 
 		renderConfirmStep(
 			overlay,

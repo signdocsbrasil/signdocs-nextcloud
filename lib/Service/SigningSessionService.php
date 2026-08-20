@@ -99,7 +99,7 @@ class SigningSessionService {
 
 	/**
 	 * @param array{name: string, email: string, cpf?: string, phone?: string}[] $signers
-	 * @param array{mode?: string, order?: string, validityDays?: int} $options
+	 * @param array{mode?: string, order?: string, validityDays?: int, requestId?: string} $options
 	 */
 	public function createForFile(int $fileId, array $signers, array $options = []): SigningSession {
 		// Validate constraints BEFORE touching NC services or the SDK so an
@@ -158,14 +158,16 @@ class SigningSessionService {
 			'nc_user_id' => $userId,
 		];
 
+		$idemBase = $this->idempotencyBase($options['requestId'] ?? null);
+
 		if (count($signers) <= 1) {
-			return $this->createSingle($client, $policy, $signers[0] ?? null, $documentInline, $metadata, $fileId, $userId, $owner, $mode);
+			return $this->createSingle($client, $policy, $signers[0] ?? null, $documentInline, $metadata, $fileId, $userId, $owner, $mode, $idemBase);
 		}
 
-		return $this->createEnvelope($client, $policy, $signers, $documentInline, $options['order'] ?? 'PARALLEL', $metadata, $fileId, $userId, $owner, $mode);
+		return $this->createEnvelope($client, $policy, $signers, $documentInline, $options['order'] ?? 'PARALLEL', $metadata, $fileId, $userId, $owner, $mode, $idemBase);
 	}
 
-	private function createSingle($client, Policy $policy, ?array $signerData, array $document, array $metadata, int $fileId, string $userId, ?Owner $owner = null, string $mode = 'electronic'): SigningSession {
+	private function createSingle($client, Policy $policy, ?array $signerData, array $document, array $metadata, int $fileId, string $userId, ?Owner $owner = null, string $mode = 'electronic', ?string $idemBase = null): SigningSession {
 		if ($signerData === null) {
 			throw new \InvalidArgumentException('At least one signer is required.');
 		}
@@ -178,7 +180,10 @@ class SigningSessionService {
 			locale: 'pt-BR',
 			owner: $owner,
 		);
-		$apiSession = $client->signingSessions->create($request);
+		$apiSession = $client->signingSessions->create(
+			$request,
+			$idemBase !== null ? $idemBase . '#session' : null,
+		);
 
 		return $this->persist(
 			sessionId: $apiSession->sessionId,
@@ -207,7 +212,7 @@ class SigningSessionService {
 		);
 	}
 
-	private function createEnvelope($client, Policy $policy, array $signers, array $document, string $order, array $metadata, int $fileId, string $userId, ?Owner $owner = null, string $mode = 'electronic'): SigningSession {
+	private function createEnvelope($client, Policy $policy, array $signers, array $document, string $order, array $metadata, int $fileId, string $userId, ?Owner $owner = null, string $mode = 'electronic', ?string $idemBase = null): SigningSession {
 		$envelope = $client->envelopes->create(new CreateEnvelopeRequest(
 			signingMode: strtoupper($order) === 'SEQUENTIAL' ? 'SEQUENTIAL' : 'PARALLEL',
 			totalSigners: count($signers),
@@ -215,16 +220,19 @@ class SigningSessionService {
 			metadata: $metadata,
 			locale: 'pt-BR',
 			owner: $owner,
-		));
+		), $idemBase !== null ? $idemBase . '#envelope' : null);
 
 		$shareLinks = [];
 		foreach (array_values($signers) as $i => $signerData) {
+			// A distinct key per signer. One key for the whole envelope would
+			// serve signer 2 the response cached for signer 1 — and that
+			// response carries the only copy of that signer's clientSecret.
 			$envSession = $client->envelopes->addSession($envelope->envelopeId, new AddEnvelopeSessionRequest(
 				signer: $this->buildSigner($signerData, $i),
 				policy: $policy,
 				signerIndex: $i + 1,
 				purpose: 'DOCUMENT_SIGNATURE',
-			));
+			), $idemBase !== null ? $idemBase . '#signer#' . $i : null);
 			$shareLinks[] = self::buildShareLink(
 				profile: $policy->profile,
 				signerData: $signerData,
@@ -827,6 +835,35 @@ class SigningSessionService {
 	 */
 	public static function isDigitalCertificateMode(string $mode): bool {
 		return in_array($mode, ['digital_certificate', 'icp_a1', 'icp_a3'], true);
+	}
+
+	/**
+	 * Normalise the front-end's per-submission request id into an idempotency
+	 * base, or null to let the SDK mint its own.
+	 *
+	 * The SDK already mints a key per call, which covers its own retries of
+	 * 429/500/503. What that cannot cover is a second *invocation* — a
+	 * double-clicked confirm button, or a user retrying after a PHP timeout —
+	 * because each invocation mints a fresh key and so buys a fresh envelope,
+	 * a fresh quota charge and a fresh set of invitations. The dialog mints one
+	 * id per submission and sends it here, so those attempts collapse onto the
+	 * API's cache instead. Opening the dialog again mints a new id, so sending
+	 * the same document twice on purpose still works.
+	 *
+	 * Rejects anything that is not a plain bounded token: the value becomes
+	 * part of a sort key upstream, and `#` is the separator this class appends
+	 * suffixes with. A malformed id is dropped rather than fatal — it costs the
+	 * cross-invocation guarantee, not the signature.
+	 */
+	private function idempotencyBase(mixed $requestId): ?string {
+		if (!is_string($requestId) || $requestId === '') {
+			return null;
+		}
+		if (preg_match('/^[A-Za-z0-9._-]{8,128}$/', $requestId) !== 1) {
+			$this->logger->warning('Ignoring malformed requestId; falling back to a per-call idempotency key.');
+			return null;
+		}
+		return 'nc:' . $requestId;
 	}
 
 	private function buildSigner(array $signerData, int $index): Signer {
