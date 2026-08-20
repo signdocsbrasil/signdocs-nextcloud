@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The Nextcloud App Store reads the section matching each published version, so
 every release must add one here.
 
-## 0.3.0 - 2026-08-07
+## 0.3.0 - 2026-08-20
 
 ### Changed
 
@@ -35,13 +35,29 @@ every release must add one here.
   ever appeared in the dialog that showed it. Rows carrying a signature of your
   own now offer to mint a fresh link and open the signing page directly. The URL
   is never displayed and never stored; a new one is issued each time.
-  Requires `signdocs-brasil/signdocs-brasil-php` ^1.10.
+  Requires `signdocs-brasil/signdocs-brasil-php` ^1.11, the release that first
+  exposes the endpoint this calls.
 
 ### Fixed
 
 - **Single-signer sends now show the signing link.** The link was discarded on
   creation, so a document you sent to yourself produced no invitation email and
   no link — it could never be signed, despite the dialog promising a link.
+- **Sending twice no longer sends twice.** Every attempt at one submission —
+  a double-clicked confirm, or a retry after the request timed out — created a
+  fresh envelope, spent quota again and invited every signer a second time.
+  The dialog now stamps one request id per submission and the server derives an
+  idempotency key per call from it, so those attempts return the first result
+  instead of repeating it. Signers are keyed apart from one another, because the
+  response for each carries the only copy of that signer's credential. Opening
+  the dialog again mints a new id, so sending the same document twice on purpose
+  still works.
+
+### Changed (dependencies)
+
+- `signdocs-brasil/signdocs-brasil-php` 1.9.0 → 1.11.0. Besides the endpoint
+  behind "Assinar", 1.10.0 is the release that lets a caller pass an idempotency
+  key on `addSession`, which the fix above depends on.
 
 ## 0.2.1 - 2026-08-03
 
